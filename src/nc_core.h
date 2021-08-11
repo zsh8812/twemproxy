@@ -131,6 +131,7 @@ struct context {
     uint32_t           max_nfd;     /* max # files */
     uint32_t           max_ncconn;  /* max # client connections */
     uint32_t           max_nsconn;  /* max # server connections */
+    struct msglist* msg_list; /* msg list */
 };
 
 

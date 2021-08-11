@@ -15,14 +15,12 @@
  * limitations under the License.
  */
 
+#include <nc_client.h>
 #include <nc_core.h>
 #include <nc_server.h>
-#include <nc_client.h>
 
-void
-client_ref(struct conn *conn, void *owner)
-{
-    struct server_pool *pool = owner;
+void client_ref(struct conn* conn, void* owner) {
+    struct server_pool* pool = owner;
 
     ASSERT(conn->client && !conn->proxy);
     ASSERT(conn->owner == NULL);
@@ -42,14 +40,16 @@ client_ref(struct conn *conn, void *owner)
     /* owner of the client connection is the server pool */
     conn->owner = owner;
 
-    log_debug(LOG_VVERB, "ref conn %p owner %p into pool '%.*s'", conn, pool,
-              pool->name.len, pool->name.data);
+    log_debug(LOG_VVERB,
+              "ref conn %p owner %p into pool '%.*s'",
+              conn,
+              pool,
+              pool->name.len,
+              pool->name.data);
 }
 
-void
-client_unref(struct conn *conn)
-{
-    struct server_pool *pool;
+void client_unref(struct conn* conn) {
+    struct server_pool* pool;
 
     ASSERT(conn->client && !conn->proxy);
     ASSERT(conn->owner != NULL);
@@ -61,13 +61,21 @@ client_unref(struct conn *conn)
     pool->nc_conn_q--;
     TAILQ_REMOVE(&pool->c_conn_q, conn, conn_tqe);
 
-    log_debug(LOG_VVERB, "unref conn %p owner %p from pool '%.*s'", conn,
-              pool, pool->name.len, pool->name.data);
+    log_debug(LOG_VVERB,
+              "unref conn %p owner %p from pool '%.*s'",
+              conn,
+              pool,
+              pool->name.len,
+              pool->name.data);
 }
 
-bool
-client_active(const struct conn *conn)
-{
+struct server_pool* client_server_pool(struct conn* conn) {
+    ASSERT(conn->client && !conn->proxy);
+    ASSERT(conn->owner != NULL);
+    return ( struct server_pool* )conn->owner;
+}
+
+bool client_active(const struct conn* conn) {
     ASSERT(conn->client && !conn->proxy);
 
     ASSERT(TAILQ_EMPTY(&conn->imsg_q));
@@ -93,9 +101,7 @@ client_active(const struct conn *conn)
 }
 
 static void
-client_close_stats(struct context *ctx, struct server_pool *pool, err_t err,
-                   unsigned eof)
-{
+client_close_stats(struct context* ctx, struct server_pool* pool, err_t err, unsigned eof) {
     stats_pool_decr(ctx, pool, client_connections);
 
     if (eof) {
@@ -104,24 +110,22 @@ client_close_stats(struct context *ctx, struct server_pool *pool, err_t err,
     }
 
     switch (err) {
-    case EPIPE:
-    case ETIMEDOUT:
-    case ECONNRESET:
-    case ECONNABORTED:
-    case ENOTCONN:
-    case ENETDOWN:
-    case ENETUNREACH:
-    case EHOSTDOWN:
-    case EHOSTUNREACH:
-    default:
-        stats_pool_incr(ctx, pool, client_err);
-        break;
+        case EPIPE:
+        case ETIMEDOUT:
+        case ECONNRESET:
+        case ECONNABORTED:
+        case ENOTCONN:
+        case ENETDOWN:
+        case ENETUNREACH:
+        case EHOSTDOWN:
+        case EHOSTUNREACH:
+        default:
+            stats_pool_incr(ctx, pool, client_err);
+            break;
     }
 }
 
-void
-client_close(struct context *ctx, struct conn *conn)
-{
+void client_close(struct context* ctx, struct conn* conn) {
     rstatus_t status;
     struct msg *msg, *nmsg; /* current and next message */
 
@@ -142,8 +146,12 @@ client_close(struct context *ctx, struct conn *conn)
         ASSERT(msg->peer == NULL);
         ASSERT(msg->request && !msg->done);
 
-        log_debug(LOG_INFO, "close c %d discarding pending req %"PRIu64" len "
-                  "%"PRIu32" type %d", conn->sd, msg->id, msg->mlen,
+        log_debug(LOG_INFO,
+                  "close c %d discarding pending req %" PRIu64 " len "
+                  "%" PRIu32 " type %d",
+                  conn->sd,
+                  msg->id,
+                  msg->mlen,
                   msg->type);
 
         req_put(msg);
@@ -159,9 +167,13 @@ client_close(struct context *ctx, struct conn *conn)
         conn->dequeue_outq(ctx, conn, msg);
 
         if (msg->done) {
-            log_debug(LOG_INFO, "close c %d discarding %s req %"PRIu64" len "
-                      "%"PRIu32" type %d", conn->sd,
-                      msg->error ? "error": "completed", msg->id, msg->mlen,
+            log_debug(LOG_INFO,
+                      "close c %d discarding %s req %" PRIu64 " len "
+                      "%" PRIu32 " type %d",
+                      conn->sd,
+                      msg->error ? "error" : "completed",
+                      msg->id,
+                      msg->mlen,
                       msg->type);
             req_put(msg);
         } else {
@@ -170,8 +182,12 @@ client_close(struct context *ctx, struct conn *conn)
             ASSERT(msg->request);
             ASSERT(msg->peer == NULL);
 
-            log_debug(LOG_INFO, "close c %d schedule swallow of req %"PRIu64" "
-                      "len %"PRIu32" type %d", conn->sd, msg->id, msg->mlen,
+            log_debug(LOG_INFO,
+                      "close c %d schedule swallow of req %" PRIu64 " "
+                      "len %" PRIu32 " type %d",
+                      conn->sd,
+                      msg->id,
+                      msg->mlen,
                       msg->type);
         }
     }

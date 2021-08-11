@@ -15,31 +15,26 @@
  * limitations under the License.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdarg.h>
-#include <string.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <nc_core.h>
 #include <netdb.h>
-
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/ioctl.h>
-
 #include <netinet/in.h>
 #include <netinet/tcp.h>
-
-#include <nc_core.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #ifdef NC_HAVE_BACKTRACE
-# include <execinfo.h>
+#include <execinfo.h>
 #endif
 
-int
-nc_set_blocking(int sd)
-{
+int nc_set_blocking(int sd) {
     int flags;
 
     flags = fcntl(sd, F_GETFL, 0);
@@ -50,9 +45,7 @@ nc_set_blocking(int sd)
     return fcntl(sd, F_SETFL, flags & ~O_NONBLOCK);
 }
 
-int
-nc_set_nonblocking(int sd)
-{
+int nc_set_nonblocking(int sd) {
     int flags;
 
     flags = fcntl(sd, F_GETFL, 0);
@@ -63,9 +56,7 @@ nc_set_nonblocking(int sd)
     return fcntl(sd, F_SETFL, flags | O_NONBLOCK);
 }
 
-int
-nc_set_reuseaddr(int sd)
-{
+int nc_set_reuseaddr(int sd) {
     int reuse;
     socklen_t len;
 
@@ -75,6 +66,15 @@ nc_set_reuseaddr(int sd)
     return setsockopt(sd, SOL_SOCKET, SO_REUSEADDR, &reuse, len);
 }
 
+int nc_set_reuseport(int sd) {
+    int reuse;
+    socklen_t len;
+
+    reuse = 1;
+    len = sizeof(reuse);
+
+    return setsockopt(sd, SOL_SOCKET, SO_REUSEPORT, &reuse, len);
+}
 /*
  * Disable Nagle algorithm on TCP socket.
  *
@@ -83,9 +83,7 @@ nc_set_reuseaddr(int sd)
  * option must use readv() or writev() to do data transfer in bulk and
  * hence avoid the overhead of small packets.
  */
-int
-nc_set_tcpnodelay(int sd)
-{
+int nc_set_tcpnodelay(int sd) {
     int nodelay;
     socklen_t len;
 
@@ -95,9 +93,7 @@ nc_set_tcpnodelay(int sd)
     return setsockopt(sd, IPPROTO_TCP, TCP_NODELAY, &nodelay, len);
 }
 
-int
-nc_set_linger(int sd, int timeout)
-{
+int nc_set_linger(int sd, int timeout) {
     struct linger linger;
     socklen_t len;
 
@@ -109,16 +105,12 @@ nc_set_linger(int sd, int timeout)
     return setsockopt(sd, SOL_SOCKET, SO_LINGER, &linger, len);
 }
 
-int
-nc_set_tcpkeepalive(int sd)
-{
+int nc_set_tcpkeepalive(int sd) {
     int val = 1;
     return setsockopt(sd, SOL_SOCKET, SO_KEEPALIVE, &val, sizeof(val));
 }
 
-int
-nc_set_sndbuf(int sd, int size)
-{
+int nc_set_sndbuf(int sd, int size) {
     socklen_t len;
 
     len = sizeof(size);
@@ -126,9 +118,7 @@ nc_set_sndbuf(int sd, int size)
     return setsockopt(sd, SOL_SOCKET, SO_SNDBUF, &size, len);
 }
 
-int
-nc_set_rcvbuf(int sd, int size)
-{
+int nc_set_rcvbuf(int sd, int size) {
     socklen_t len;
 
     len = sizeof(size);
@@ -136,9 +126,7 @@ nc_set_rcvbuf(int sd, int size)
     return setsockopt(sd, SOL_SOCKET, SO_RCVBUF, &size, len);
 }
 
-int
-nc_get_soerror(int sd)
-{
+int nc_get_soerror(int sd) {
     int status, err;
     socklen_t len;
 
@@ -153,9 +141,7 @@ nc_get_soerror(int sd)
     return status;
 }
 
-int
-nc_get_sndbuf(int sd)
-{
+int nc_get_sndbuf(int sd) {
     int status, size;
     socklen_t len;
 
@@ -170,9 +156,7 @@ nc_get_sndbuf(int sd)
     return size;
 }
 
-int
-nc_get_rcvbuf(int sd)
-{
+int nc_get_rcvbuf(int sd) {
     int status, size;
     socklen_t len;
 
@@ -187,9 +171,7 @@ nc_get_rcvbuf(int sd)
     return size;
 }
 
-int
-_nc_atoi(const uint8_t *line, size_t n)
-{
+int _nc_atoi(const uint8_t* line, size_t n) {
     int value;
 
     if (n == 0) {
@@ -211,9 +193,7 @@ _nc_atoi(const uint8_t *line, size_t n)
     return value;
 }
 
-bool
-nc_valid_port(int n)
-{
+bool nc_valid_port(int n) {
     if (n < 1 || n > UINT16_MAX) {
         return false;
     }
@@ -221,10 +201,8 @@ nc_valid_port(int n)
     return true;
 }
 
-void *
-_nc_alloc(size_t size, const char *name, int line)
-{
-    void *p;
+void* _nc_alloc(size_t size, const char* name, int line) {
+    void* p;
 
     ASSERT(size != 0);
 
@@ -238,10 +216,8 @@ _nc_alloc(size_t size, const char *name, int line)
     return p;
 }
 
-void *
-_nc_zalloc(size_t size, const char *name, int line)
-{
-    void *p;
+void* _nc_zalloc(size_t size, const char* name, int line) {
+    void* p;
 
     p = _nc_alloc(size, name, line);
     if (p != NULL) {
@@ -251,16 +227,12 @@ _nc_zalloc(size_t size, const char *name, int line)
     return p;
 }
 
-void *
-_nc_calloc(size_t nmemb, size_t size, const char *name, int line)
-{
+void* _nc_calloc(size_t nmemb, size_t size, const char* name, int line) {
     return _nc_zalloc(nmemb * size, name, line);
 }
 
-void *
-_nc_realloc(void *ptr, size_t size, const char *name, int line)
-{
-    void *p;
+void* _nc_realloc(void* ptr, size_t size, const char* name, int line) {
+    void* p;
 
     ASSERT(size != 0);
 
@@ -274,20 +246,16 @@ _nc_realloc(void *ptr, size_t size, const char *name, int line)
     return p;
 }
 
-void
-_nc_free(void *ptr, const char *name, int line)
-{
+void _nc_free(void* ptr, const char* name, int line) {
     ASSERT(ptr != NULL);
     log_debug(LOG_VVERB, "free(%p) @ %s:%d", ptr, name, line);
     free(ptr);
 }
 
-void
-nc_stacktrace(int skip_count)
-{
+void nc_stacktrace(int skip_count) {
 #ifdef NC_HAVE_BACKTRACE
-    void *stack[64];
-    char **symbols;
+    void* stack[64];
+    char** symbols;
     int size, i, j;
 
     size = backtrace(stack, 64);
@@ -306,11 +274,9 @@ nc_stacktrace(int skip_count)
 #endif
 }
 
-void
-nc_stacktrace_fd(int fd)
-{
+void nc_stacktrace_fd(int fd) {
 #ifdef NC_HAVE_BACKTRACE
-    void *stack[64];
+    void* stack[64];
     int size;
 
     size = backtrace(stack, 64);
@@ -318,9 +284,7 @@ nc_stacktrace_fd(int fd)
 #endif
 }
 
-void
-nc_assert(const char *cond, const char *file, int line, int panic)
-{
+void nc_assert(const char* cond, const char* file, int line, int panic) {
     log_error("assert '%s' failed @ (%s, %d)", cond, file, line);
     if (panic) {
         nc_stacktrace(1);
@@ -328,9 +292,7 @@ nc_assert(const char *cond, const char *file, int line, int panic)
     }
 }
 
-int
-_vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
-{
+int _vscnprintf(char* buf, size_t size, const char* fmt, va_list args) {
     int n;
 
     n = vsnprintf(buf, size, fmt, args);
@@ -349,16 +311,14 @@ _vscnprintf(char *buf, size_t size, const char *fmt, va_list args)
         return 0;
     }
 
-    if (n < (int) size) {
+    if (n < ( int )size) {
         return n;
     }
 
-    return (int)(size - 1);
+    return ( int )(size - 1);
 }
 
-int
-_scnprintf(char *buf, size_t size, const char *fmt, ...)
-{
+int _scnprintf(char* buf, size_t size, const char* fmt, ...) {
     va_list args;
     int n;
 
@@ -372,12 +332,10 @@ _scnprintf(char *buf, size_t size, const char *fmt, ...)
 /*
  * Send n bytes on a blocking descriptor
  */
-ssize_t
-_nc_sendn(int sd, const void *vptr, size_t n)
-{
+ssize_t _nc_sendn(int sd, const void* vptr, size_t n) {
     size_t nleft;
-    ssize_t	nsend;
-    const char *ptr;
+    ssize_t nsend;
+    const char* ptr;
 
     ptr = vptr;
     nleft = n;
@@ -393,26 +351,24 @@ _nc_sendn(int sd, const void *vptr, size_t n)
             return -1;
         }
 
-        nleft -= (size_t)nsend;
+        nleft -= ( size_t )nsend;
         ptr += nsend;
     }
 
-    return (ssize_t)n;
+    return ( ssize_t )n;
 }
 
 /*
  * Recv n bytes from a blocking descriptor
  */
-ssize_t
-_nc_recvn(int sd, void *vptr, size_t n)
-{
-	size_t nleft;
-	ssize_t	nrecv;
-	char *ptr;
+ssize_t _nc_recvn(int sd, void* vptr, size_t n) {
+    size_t nleft;
+    ssize_t nrecv;
+    char* ptr;
 
-	ptr = vptr;
-	nleft = n;
-	while (nleft > 0) {
+    ptr = vptr;
+    nleft = n;
+    while (nleft > 0) {
         nrecv = recv(sd, ptr, nleft, 0);
         if (nrecv < 0) {
             if (errno == EINTR) {
@@ -424,19 +380,17 @@ _nc_recvn(int sd, void *vptr, size_t n)
             break;
         }
 
-        nleft -= (size_t)nrecv;
+        nleft -= ( size_t )nrecv;
         ptr += nrecv;
     }
 
-    return (ssize_t)(n - nleft);
+    return ( ssize_t )(n - nleft);
 }
 
 /*
  * Return the current time in microseconds since Epoch
  */
-int64_t
-nc_usec_now(void)
-{
+int64_t nc_usec_now(void) {
     struct timeval now;
     int64_t usec;
     int status;
@@ -447,7 +401,7 @@ nc_usec_now(void)
         return -1;
     }
 
-    usec = (int64_t)now.tv_sec * 1000000LL + (int64_t)now.tv_usec;
+    usec = ( int64_t )now.tv_sec * 1000000LL + ( int64_t )now.tv_usec;
 
     return usec;
 }
@@ -455,15 +409,11 @@ nc_usec_now(void)
 /*
  * Return the current time in milliseconds since Epoch
  */
-int64_t
-nc_msec_now(void)
-{
+int64_t nc_msec_now(void) {
     return nc_usec_now() / 1000LL;
 }
 
-static int
-nc_resolve_inet(const struct string *name, int port, struct sockinfo *si)
-{
+static int nc_resolve_inet(const struct string* name, int port, struct sockinfo* si) {
     int status;
     struct addrinfo *ai, *cai; /* head and current addrinfo */
     struct addrinfo hints;
@@ -474,7 +424,7 @@ nc_resolve_inet(const struct string *name, int port, struct sockinfo *si)
 
     memset(&hints, 0, sizeof(hints));
     hints.ai_flags = AI_NUMERICSERV;
-    hints.ai_family = AF_UNSPEC;     /* AF_INET or AF_INET6 */
+    hints.ai_family = AF_UNSPEC; /* AF_INET or AF_INET6 */
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = 0;
     hints.ai_addrlen = 0;
@@ -482,7 +432,7 @@ nc_resolve_inet(const struct string *name, int port, struct sockinfo *si)
     hints.ai_canonname = NULL;
 
     if (name != NULL) {
-        node = (char *)name->data;
+        node = ( char* )name->data;
     } else {
         /*
          * If AI_PASSIVE flag is specified in hints.ai_flags, and node is
@@ -503,7 +453,9 @@ nc_resolve_inet(const struct string *name, int port, struct sockinfo *si)
     status = getaddrinfo(node, service, &hints, &ai);
     if (status != 0) {
         log_error("address resolution of node '%s' service '%s' failed: %s",
-                  node, service, gai_strerror(status));
+                  node,
+                  service,
+                  gai_strerror(status));
         return -1;
     }
 
@@ -531,10 +483,8 @@ nc_resolve_inet(const struct string *name, int port, struct sockinfo *si)
     return !found ? -1 : 0;
 }
 
-static int
-nc_resolve_unix(const struct string *name, struct sockinfo *si)
-{
-    struct sockaddr_un *un;
+static int nc_resolve_unix(const struct string* name, struct sockinfo* si) {
+    struct sockaddr_un* un;
 
     if (name->len >= NC_UNIX_ADDRSTRLEN) {
         return -1;
@@ -559,9 +509,7 @@ nc_resolve_unix(const struct string *name, struct sockinfo *si)
  *
  * This routine is reentrant
  */
-int
-nc_resolve(const struct string *name, int port, struct sockinfo *si)
-{
+int nc_resolve(const struct string* name, int port, struct sockinfo* si) {
     if (name != NULL && name->data[0] == '/') {
         return nc_resolve_unix(name, si);
     }
@@ -575,15 +523,17 @@ nc_resolve(const struct string *name, int port, struct sockinfo *si)
  *
  * This routine is not reentrant
  */
-const char *
-nc_unresolve_addr(struct sockaddr *addr, socklen_t addrlen)
-{
+const char* nc_unresolve_addr(struct sockaddr* addr, socklen_t addrlen) {
     static char unresolve[NI_MAXHOST + NI_MAXSERV];
     static char host[NI_MAXHOST], service[NI_MAXSERV];
     int status;
 
-    status = getnameinfo(addr, addrlen, host, sizeof(host),
-                         service, sizeof(service),
+    status = getnameinfo(addr,
+                         addrlen,
+                         host,
+                         sizeof(host),
+                         service,
+                         sizeof(service),
                          NI_NUMERICHOST | NI_NUMERICSERV);
     if (status < 0) {
         return "unknown";
@@ -600,16 +550,14 @@ nc_unresolve_addr(struct sockaddr *addr, socklen_t addrlen)
  *
  * This routine is not reentrant
  */
-const char *
-nc_unresolve_peer_desc(int sd)
-{
+const char* nc_unresolve_peer_desc(int sd) {
     static struct sockinfo si;
-    struct sockaddr *addr;
+    struct sockaddr* addr;
     socklen_t addrlen;
     int status;
 
     memset(&si, 0, sizeof(si));
-    addr = (struct sockaddr *)&si.addr;
+    addr = ( struct sockaddr* )&si.addr;
     addrlen = sizeof(si.addr);
 
     status = getpeername(sd, addr, &addrlen);
@@ -626,16 +574,14 @@ nc_unresolve_peer_desc(int sd)
  *
  * This routine is not reentrant
  */
-const char *
-nc_unresolve_desc(int sd)
-{
+const char* nc_unresolve_desc(int sd) {
     static struct sockinfo si;
-    struct sockaddr *addr;
+    struct sockaddr* addr;
     socklen_t addrlen;
     int status;
 
     memset(&si, 0, sizeof(si));
-    addr = (struct sockaddr *)&si.addr;
+    addr = ( struct sockaddr* )&si.addr;
     addrlen = sizeof(si.addr);
 
     status = getsockname(sd, addr, &addrlen);

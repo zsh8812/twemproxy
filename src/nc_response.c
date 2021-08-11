@@ -18,14 +18,13 @@
 #include <nc_core.h>
 #include <nc_server.h>
 
-struct msg *
-rsp_get(struct conn *conn)
-{
-    struct msg *msg;
+struct msg* rsp_get(struct conn* conn) {
+    struct msg* msg;
 
     ASSERT(!conn->client && !conn->proxy);
 
-    msg = msg_get(conn, false, conn->redis);
+    struct msglist* msg_list = conn->server_pool(conn)->ctx->msg_list;
+    msg = msg_get(msg_list, conn, false, conn->redis);
     if (msg == NULL) {
         conn->err = errno;
     }
@@ -33,18 +32,16 @@ rsp_get(struct conn *conn)
     return msg;
 }
 
-void
-rsp_put(struct msg *msg)
-{
+void rsp_put(struct msg* msg) {
     ASSERT(!msg->request);
     ASSERT(msg->peer == NULL);
-    msg_put(msg);
+    ASSERT(msg->owner != NULL);
+    struct msglist* msg_list = msg->owner->server_pool(msg->owner)->ctx->msg_list;
+    msg_put(msg_list, msg);
 }
 
-static struct msg *
-rsp_make_error(struct context *ctx, struct conn *conn, struct msg *msg)
-{
-    struct msg *pmsg;        /* peer message (response) */
+static struct msg* rsp_make_error(struct context* ctx, struct conn* conn, struct msg* msg) {
+    struct msg* pmsg;        /* peer message (response) */
     struct msg *cmsg, *nmsg; /* current and next message (request) */
     uint64_t id;
     err_t err;
@@ -55,8 +52,7 @@ rsp_make_error(struct context *ctx, struct conn *conn, struct msg *msg)
 
     id = msg->frag_id;
     if (id != 0) {
-        for (err = 0, cmsg = TAILQ_NEXT(msg, c_tqe);
-             cmsg != NULL && cmsg->frag_id == id;
+        for (err = 0, cmsg = TAILQ_NEXT(msg, c_tqe); cmsg != NULL && cmsg->frag_id == id;
              cmsg = nmsg) {
             nmsg = TAILQ_NEXT(cmsg, c_tqe);
 
@@ -80,13 +76,15 @@ rsp_make_error(struct context *ctx, struct conn *conn, struct msg *msg)
         rsp_put(pmsg);
     }
 
-    return msg_get_error(conn->redis, err);
+    struct msg* ret_msg = msg_get_error(ctx->msg_list, conn->redis, err);
+    if (NULL != ret_msg) {
+        ret_msg->owner = conn;
+    }
+    return ret_msg;
 }
 
-struct msg *
-rsp_recv_next(struct context *ctx, struct conn *conn, bool alloc)
-{
-    struct msg *msg;
+struct msg* rsp_recv_next(struct context* ctx, struct conn* conn, bool alloc) {
+    struct msg* msg;
 
     ASSERT(!conn->client && !conn->proxy);
 
@@ -100,8 +98,11 @@ rsp_recv_next(struct context *ctx, struct conn *conn, bool alloc)
             ASSERT(msg->peer == NULL);
             ASSERT(!msg->request);
 
-            log_error("eof s %d discarding incomplete rsp %"PRIu64" len "
-                      "%"PRIu32"", conn->sd, msg->id, msg->mlen);
+            log_error("eof s %d discarding incomplete rsp %" PRIu64 " len "
+                      "%" PRIu32 "",
+                      conn->sd,
+                      msg->id,
+                      msg->mlen);
 
             rsp_put(msg);
         }
@@ -138,25 +139,25 @@ rsp_recv_next(struct context *ctx, struct conn *conn, bool alloc)
     return msg;
 }
 
-static bool
-rsp_filter(struct context *ctx, struct conn *conn, struct msg *msg)
-{
-    struct msg *pmsg;
+static bool rsp_filter(struct context* ctx, struct conn* conn, struct msg* msg) {
+    struct msg* pmsg;
 
     ASSERT(!conn->client && !conn->proxy);
 
     if (msg_empty(msg)) {
         ASSERT(conn->rmsg == NULL);
-        log_debug(LOG_VERB, "filter empty rsp %"PRIu64" on s %d", msg->id,
-                  conn->sd);
+        log_debug(LOG_VERB, "filter empty rsp %" PRIu64 " on s %d", msg->id, conn->sd);
         rsp_put(msg);
         return true;
     }
 
     pmsg = TAILQ_FIRST(&conn->omsg_q);
     if (pmsg == NULL) {
-        log_debug(LOG_ERR, "filter stray rsp %"PRIu64" len %"PRIu32" on s %d",
-                  msg->id, msg->mlen, conn->sd);
+        log_debug(LOG_ERR,
+                  "filter stray rsp %" PRIu64 " len %" PRIu32 " on s %d",
+                  msg->id,
+                  msg->mlen,
+                  conn->sd);
         rsp_put(msg);
 
         /*
@@ -193,8 +194,13 @@ rsp_filter(struct context *ctx, struct conn *conn, struct msg *msg)
      * and eject the server if it exceeds the failure_limit
      */
     if (msg->failure(msg)) {
-        log_debug(LOG_INFO, "server failure rsp %"PRIu64" len %"PRIu32" "
-                  "type %d on s %d", msg->id, msg->mlen, msg->type, conn->sd);
+        log_debug(LOG_INFO,
+                  "server failure rsp %" PRIu64 " len %" PRIu32 " "
+                  "type %d on s %d",
+                  msg->id,
+                  msg->mlen,
+                  msg->type,
+                  conn->sd);
         rsp_put(msg);
 
         conn->err = EINVAL;
@@ -209,8 +215,12 @@ rsp_filter(struct context *ctx, struct conn *conn, struct msg *msg)
         conn->dequeue_outq(ctx, conn, pmsg);
         pmsg->done = 1;
 
-        log_debug(LOG_INFO, "swallow rsp %"PRIu64" len %"PRIu32" of req "
-                  "%"PRIu64" on s %d", msg->id, msg->mlen, pmsg->id,
+        log_debug(LOG_INFO,
+                  "swallow rsp %" PRIu64 " len %" PRIu32 " of req "
+                  "%" PRIu64 " on s %d",
+                  msg->id,
+                  msg->mlen,
+                  pmsg->id,
                   conn->sd);
 
         rsp_put(msg);
@@ -222,20 +232,17 @@ rsp_filter(struct context *ctx, struct conn *conn, struct msg *msg)
 }
 
 static void
-rsp_forward_stats(struct context *ctx, struct server *server, struct msg *msg, uint32_t msgsize)
-{
+rsp_forward_stats(struct context* ctx, struct server* server, struct msg* msg, uint32_t msgsize) {
     ASSERT(!msg->request);
 
     stats_server_incr(ctx, server, responses);
     stats_server_incr_by(ctx, server, response_bytes, msgsize);
 }
 
-static void
-rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
-{
+static void rsp_forward(struct context* ctx, struct conn* s_conn, struct msg* msg) {
     rstatus_t status;
-    struct msg *pmsg;
-    struct conn *c_conn;
+    struct msg* pmsg;
+    struct conn* c_conn;
     uint32_t msgsize;
 
     ASSERT(!s_conn->client && !s_conn->proxy);
@@ -271,10 +278,7 @@ rsp_forward(struct context *ctx, struct conn *s_conn, struct msg *msg)
     rsp_forward_stats(ctx, s_conn->owner, msg, msgsize);
 }
 
-void
-rsp_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
-              struct msg *nmsg)
-{
+void rsp_recv_done(struct context* ctx, struct conn* conn, struct msg* msg, struct msg* nmsg) {
     ASSERT(!conn->client && !conn->proxy);
     ASSERT(msg != NULL && conn->rmsg == msg);
     ASSERT(!msg->request);
@@ -291,9 +295,7 @@ rsp_recv_done(struct context *ctx, struct conn *conn, struct msg *msg,
     rsp_forward(ctx, conn, msg);
 }
 
-struct msg *
-rsp_send_next(struct context *ctx, struct conn *conn)
-{
+struct msg* rsp_send_next(struct context* ctx, struct conn* conn) {
     rstatus_t status;
     struct msg *msg, *pmsg; /* response and it's peer request */
 
@@ -344,20 +346,18 @@ rsp_send_next(struct context *ctx, struct conn *conn)
 
     conn->smsg = msg;
 
-    log_debug(LOG_VVERB, "send next rsp %"PRIu64" on c %d", msg->id, conn->sd);
+    log_debug(LOG_VVERB, "send next rsp %" PRIu64 " on c %d", msg->id, conn->sd);
 
     return msg;
 }
 
-void
-rsp_send_done(struct context *ctx, struct conn *conn, struct msg *msg)
-{
-    struct msg *pmsg; /* peer message (request) */
+void rsp_send_done(struct context* ctx, struct conn* conn, struct msg* msg) {
+    struct msg* pmsg; /* peer message (request) */
 
     ASSERT(conn->client && !conn->proxy);
     ASSERT(conn->smsg == NULL);
 
-    log_debug(LOG_VVERB, "send done rsp %"PRIu64" on c %d", msg->id, conn->sd);
+    log_debug(LOG_VVERB, "send done rsp %" PRIu64 " on c %d", msg->id, conn->sd);
 
     pmsg = msg->peer;
 

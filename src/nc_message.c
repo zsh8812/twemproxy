@@ -15,14 +15,12 @@
  * limitations under the License.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-
-#include <sys/uio.h>
-
 #include <nc_core.h>
 #include <nc_server.h>
 #include <proto/nc_proto.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/uio.h>
 
 #if (IOV_MAX > 128)
 #define NC_IOV_MAX 128
@@ -109,38 +107,31 @@
  * server.
  */
 
-static uint64_t msg_id;          /* message id counter */
-static uint64_t frag_id;         /* fragment id counter */
-static uint32_t nfree_msgq;      /* # free msg q */
-static struct msg_tqh free_msgq; /* free msg q */
-static struct rbtree tmo_rbt;    /* timeout rbtree */
-static struct rbnode tmo_rbs;    /* timeout rbtree sentinel */
+// static uint64_t msg_id;          /* message id counter */
+// static uint64_t frag_id;         /* fragment id counter */
+// static uint32_t nfree_msgq;      /* # free msg q */
+// static struct msg_tqh free_msgq; /* free msg q */
+// static struct rbtree tmo_rbt;    /* timeout rbtree */
+// static struct rbnode tmo_rbs;    /* timeout rbtree sentinel */
 
 #define DEFINE_ACTION(_name) string(#_name),
-static const struct string msg_type_strings[] = {
-    MSG_TYPE_CODEC( DEFINE_ACTION )
-    null_string
-};
+static const struct string msg_type_strings[] = {MSG_TYPE_CODEC(DEFINE_ACTION) null_string};
 #undef DEFINE_ACTION
 
-static struct msg *
-msg_from_rbe(struct rbnode *node)
-{
-    struct msg *msg;
+static struct msg* msg_from_rbe(struct rbnode* node) {
+    struct msg* msg;
     int offset;
 
     offset = offsetof(struct msg, tmo_rbe);
-    msg = (struct msg *)((char *)node - offset);
+    msg = ( struct msg* )(( char* )node - offset);
 
     return msg;
 }
 
-struct msg *
-msg_tmo_min(void)
-{
-    struct rbnode *node;
+struct msg* msg_tmo_min(struct msglist* msg_list) {
+    struct rbnode* node;
 
-    node = rbtree_min(&tmo_rbt);
+    node = rbtree_min(&msg_list->tmo_rbt);
     if (node == NULL) {
         return NULL;
     }
@@ -148,10 +139,8 @@ msg_tmo_min(void)
     return msg_from_rbe(node);
 }
 
-void
-msg_tmo_insert(struct msg *msg, struct conn *conn)
-{
-    struct rbnode *node;
+void msg_tmo_insert(struct msglist* msg_list, struct msg* msg, struct conn* conn) {
+    struct rbnode* node;
     int timeout;
 
     ASSERT(msg->request);
@@ -166,16 +155,17 @@ msg_tmo_insert(struct msg *msg, struct conn *conn)
     node->key = nc_msec_now() + timeout;
     node->data = conn;
 
-    rbtree_insert(&tmo_rbt, node);
+    rbtree_insert(&msg_list->tmo_rbt, node);
 
-    log_debug(LOG_VERB, "insert msg %"PRIu64" into tmo rbt with expiry of "
-              "%d msec", msg->id, timeout);
+    log_debug(LOG_VERB,
+              "insert msg %" PRIu64 " into tmo rbt with expiry of "
+              "%d msec",
+              msg->id,
+              timeout);
 }
 
-void
-msg_tmo_delete(struct msg *msg)
-{
-    struct rbnode *node;
+void msg_tmo_delete(struct msglist* msg_list, struct msg* msg) {
+    struct rbnode* node;
 
     node = &msg->tmo_rbe;
 
@@ -185,22 +175,20 @@ msg_tmo_delete(struct msg *msg)
         return;
     }
 
-    rbtree_delete(&tmo_rbt, node);
+    rbtree_delete(&msg_list->tmo_rbt, node);
 
-    log_debug(LOG_VERB, "delete msg %"PRIu64" from tmo rbt", msg->id);
+    log_debug(LOG_VERB, "delete msg %" PRIu64 " from tmo rbt", msg->id);
 }
 
-static struct msg *
-_msg_get(void)
-{
-    struct msg *msg;
+static struct msg* _msg_get(struct msglist* msg_list) {
+    struct msg* msg;
 
-    if (!TAILQ_EMPTY(&free_msgq)) {
-        ASSERT(nfree_msgq > 0);
+    if (!TAILQ_EMPTY(&(msg_list->free_msgq))) {
+        ASSERT(msg_list->nfree_msgq > 0);
 
-        msg = TAILQ_FIRST(&free_msgq);
-        nfree_msgq--;
-        TAILQ_REMOVE(&free_msgq, msg, m_tqe);
+        msg = TAILQ_FIRST(&(msg_list->free_msgq));
+        msg_list->nfree_msgq--;
+        TAILQ_REMOVE(&(msg_list->free_msgq), msg, m_tqe);
         goto done;
     }
 
@@ -211,7 +199,7 @@ _msg_get(void)
 
 done:
     /* c_tqe, s_tqe, and m_tqe are left uninitialized */
-    msg->id = ++msg_id;
+    msg->id = ++msg_list->msg_id;
     msg->peer = NULL;
     msg->owner = NULL;
 
@@ -277,12 +265,10 @@ done:
     return msg;
 }
 
-struct msg *
-msg_get(struct conn *conn, bool request, bool redis)
-{
-    struct msg *msg;
+struct msg* msg_get(struct msglist* msg_list, struct conn* conn, bool request, bool redis) {
+    struct msg* msg;
 
-    msg = _msg_get();
+    msg = _msg_get(msg_list);
     if (msg == NULL) {
         return NULL;
     }
@@ -320,22 +306,24 @@ msg_get(struct conn *conn, bool request, bool redis)
         msg->start_ts = nc_usec_now();
     }
 
-    log_debug(LOG_VVERB, "get msg %p id %"PRIu64" request %d owner sd %d",
-              msg, msg->id, msg->request, conn->sd);
+    log_debug(LOG_VVERB,
+              "get msg %p id %" PRIu64 " request %d owner sd %d",
+              msg,
+              msg->id,
+              msg->request,
+              conn->sd);
 
     return msg;
 }
 
-struct msg *
-msg_get_error(bool redis, err_t err)
-{
-    struct msg *msg;
-    struct mbuf *mbuf;
+struct msg* msg_get_error(struct msglist* msg_list, bool redis, err_t err) {
+    struct msg* msg;
+    struct mbuf* mbuf;
     int n;
-    const char *errstr = err ? strerror(err) : "unknown";
-    const char *protstr = redis ? "-ERR" : "SERVER_ERROR";
+    const char* errstr = err ? strerror(err) : "unknown";
+    const char* protstr = redis ? "-ERR" : "SERVER_ERROR";
 
-    msg = _msg_get();
+    msg = _msg_get(msg_list);
     if (msg == NULL) {
         return NULL;
     }
@@ -345,37 +333,37 @@ msg_get_error(bool redis, err_t err)
 
     mbuf = mbuf_get();
     if (mbuf == NULL) {
-        msg_put(msg);
+        msg_put(msg_list, msg);
         return NULL;
     }
     mbuf_insert(&msg->mhdr, mbuf);
 
-    n = nc_scnprintf(mbuf->last, mbuf_size(mbuf), "%s %s"CRLF, protstr, errstr);
+    n = nc_scnprintf(mbuf->last, mbuf_size(mbuf), "%s %s" CRLF, protstr, errstr);
     mbuf->last += n;
-    msg->mlen = (uint32_t)n;
+    msg->mlen = ( uint32_t )n;
 
-    log_debug(LOG_VVERB, "get msg %p id %"PRIu64" len %"PRIu32" error '%s'",
-              msg, msg->id, msg->mlen, errstr);
+    log_debug(LOG_VVERB,
+              "get msg %p id %" PRIu64 " len %" PRIu32 " error '%s'",
+              msg,
+              msg->id,
+              msg->mlen,
+              errstr);
 
     return msg;
 }
 
-static void
-msg_free(struct msg *msg)
-{
+static void msg_free(struct msg* msg) {
     ASSERT(STAILQ_EMPTY(&msg->mhdr));
 
-    log_debug(LOG_VVERB, "free msg %p id %"PRIu64"", msg, msg->id);
+    log_debug(LOG_VVERB, "free msg %p id %" PRIu64 "", msg, msg->id);
     nc_free(msg);
 }
 
-void
-msg_put(struct msg *msg)
-{
-    log_debug(LOG_VVERB, "put msg %p id %"PRIu64"", msg, msg->id);
+void msg_put(struct msglist* msg_list, struct msg* msg) {
+    log_debug(LOG_VVERB, "put msg %p id %" PRIu64 "", msg, msg->id);
 
     while (!STAILQ_EMPTY(&msg->mhdr)) {
-        struct mbuf *mbuf = STAILQ_FIRST(&msg->mhdr);
+        struct mbuf* mbuf = STAILQ_FIRST(&msg->mhdr);
         mbuf_remove(&msg->mhdr, mbuf);
         mbuf_put(mbuf);
     }
@@ -391,22 +379,26 @@ msg_put(struct msg *msg)
         msg->keys = NULL;
     }
 
-    nfree_msgq++;
-    TAILQ_INSERT_HEAD(&free_msgq, msg, m_tqe);
+    msg_list->nfree_msgq++;
+    TAILQ_INSERT_HEAD(&(msg_list->free_msgq), msg, m_tqe);
 }
 
-void
-msg_dump(const struct msg *msg, int level)
-{
-    const struct mbuf *mbuf;
+void msg_dump(const struct msg* msg, int level) {
+    const struct mbuf* mbuf;
 
     if (log_loggable(level) == 0) {
         return;
     }
 
-    loga("msg dump id %"PRIu64" request %d len %"PRIu32" type %d done %d "
-         "error %d (err %d)", msg->id, msg->request, msg->mlen, msg->type,
-         msg->done, msg->error, msg->err);
+    loga("msg dump id %" PRIu64 " request %d len %" PRIu32 " type %d done %d "
+         "error %d (err %d)",
+         msg->id,
+         msg->request,
+         msg->mlen,
+         msg->type,
+         msg->done,
+         msg->error,
+         msg->err);
 
     STAILQ_FOREACH(mbuf, &msg->mhdr, next) {
         uint8_t *p, *q;
@@ -420,59 +412,48 @@ msg_dump(const struct msg *msg, int level)
     }
 }
 
-void
-msg_init(void)
-{
-    log_debug(LOG_DEBUG, "msg size %d", (int)sizeof(struct msg));
-    msg_id = 0;
-    frag_id = 0;
-    nfree_msgq = 0;
-    TAILQ_INIT(&free_msgq);
-    rbtree_init(&tmo_rbt, &tmo_rbs);
+void msg_init(struct msglist** msg_list) {
+    log_debug(LOG_DEBUG, "msg size %d", ( int )sizeof(struct msg));
+    struct msglist* msg_list_tmp = ( struct msglist* )malloc(sizeof(struct msglist));
+    *msg_list = msg_list_tmp;
+    msg_list_tmp->msg_id = 0;
+    msg_list_tmp->frag_id = 0;
+    msg_list_tmp->nfree_msgq = 0;
+    TAILQ_INIT(&(msg_list_tmp->free_msgq));
+    rbtree_init(&msg_list_tmp->tmo_rbt, &msg_list_tmp->tmo_rbs);
 }
 
-void
-msg_deinit(void)
-{
+void msg_deinit(struct msglist* msg_list) {
     struct msg *msg, *nmsg;
 
-    for (msg = TAILQ_FIRST(&free_msgq); msg != NULL;
-         msg = nmsg, nfree_msgq--) {
-        ASSERT(nfree_msgq > 0);
+    for (msg = TAILQ_FIRST(&msg_list->free_msgq); msg != NULL; msg = nmsg, msg_list->nfree_msgq--) {
+        ASSERT(msg_list->nfree_msgq > 0);
         nmsg = TAILQ_NEXT(msg, m_tqe);
         msg_free(msg);
     }
-    ASSERT(nfree_msgq == 0);
+    ASSERT(msg_list->nfree_msgq == 0);
+    free(msg_list);
 }
 
-const struct string *
-msg_type_string(msg_type_t type)
-{
+const struct string* msg_type_string(msg_type_t type) {
     return &msg_type_strings[type];
 }
 
-bool
-msg_empty(const struct msg *msg)
-{
+bool msg_empty(const struct msg* msg) {
     return msg->mlen == 0;
 }
 
-uint32_t
-msg_backend_idx(const struct msg *msg, const uint8_t *key, uint32_t keylen)
-{
-    struct conn *conn = msg->owner;
-    struct server_pool *pool = conn->owner;
+uint32_t msg_backend_idx(const struct msg* msg, const uint8_t* key, uint32_t keylen) {
+    struct conn* conn = msg->owner;
+    struct server_pool* pool = conn->owner;
 
     return server_pool_idx(pool, key, keylen);
 }
 
-struct mbuf *
-msg_ensure_mbuf(struct msg *msg, size_t len)
-{
-    struct mbuf *mbuf;
+struct mbuf* msg_ensure_mbuf(struct msg* msg, size_t len) {
+    struct mbuf* mbuf;
 
-    if (STAILQ_EMPTY(&msg->mhdr) ||
-        mbuf_size(STAILQ_LAST(&msg->mhdr, mbuf, next)) < len) {
+    if (STAILQ_EMPTY(&msg->mhdr) || mbuf_size(STAILQ_LAST(&msg->mhdr, mbuf, next)) < len) {
         mbuf = mbuf_get();
         if (mbuf == NULL) {
             return NULL;
@@ -489,10 +470,8 @@ msg_ensure_mbuf(struct msg *msg, size_t len)
  * Append n bytes of data, with n <= mbuf_size(mbuf)
  * into mbuf
  */
-rstatus_t
-msg_append(struct msg *msg, const uint8_t *pos, size_t n)
-{
-    struct mbuf *mbuf;
+rstatus_t msg_append(struct msg* msg, const uint8_t* pos, size_t n) {
+    struct mbuf* mbuf;
 
     ASSERT(n <= mbuf_data_size());
 
@@ -504,7 +483,7 @@ msg_append(struct msg *msg, const uint8_t *pos, size_t n)
     ASSERT(n <= mbuf_size(mbuf));
 
     mbuf_copy(mbuf, pos, n);
-    msg->mlen += (uint32_t)n;
+    msg->mlen += ( uint32_t )n;
 
     return NC_OK;
 }
@@ -513,10 +492,8 @@ msg_append(struct msg *msg, const uint8_t *pos, size_t n)
  * Prepend n bytes of data, with n <= mbuf_size(mbuf)
  * into mbuf
  */
-rstatus_t
-msg_prepend(struct msg *msg, const uint8_t *pos, size_t n)
-{
-    struct mbuf *mbuf;
+rstatus_t msg_prepend(struct msg* msg, const uint8_t* pos, size_t n) {
+    struct mbuf* mbuf;
 
     mbuf = mbuf_get();
     if (mbuf == NULL) {
@@ -526,7 +503,7 @@ msg_prepend(struct msg *msg, const uint8_t *pos, size_t n)
     ASSERT(n <= mbuf_size(mbuf));
 
     mbuf_copy(mbuf, pos, n);
-    msg->mlen += (uint32_t)n;
+    msg->mlen += ( uint32_t )n;
 
     STAILQ_INSERT_HEAD(&msg->mhdr, mbuf, next);
 
@@ -537,10 +514,8 @@ msg_prepend(struct msg *msg, const uint8_t *pos, size_t n)
  * Prepend a formatted string into msg. Returns an error if the formatted
  * string does not fit in a single mbuf.
  */
-rstatus_t
-msg_prepend_format(struct msg *msg, const char *fmt, ...)
-{
-    struct mbuf *mbuf;
+rstatus_t msg_prepend_format(struct msg* msg, const char* fmt, ...) {
+    struct mbuf* mbuf;
     int n;
     uint32_t size;
     va_list args;
@@ -555,27 +530,23 @@ msg_prepend_format(struct msg *msg, const char *fmt, ...)
     va_start(args, fmt);
     n = nc_vsnprintf(mbuf->last, size, fmt, args);
     va_end(args);
-    if (n <= 0 || n >= (int)size) {
+    if (n <= 0 || n >= ( int )size) {
         return NC_ERROR;
     }
 
     mbuf->last += n;
-    msg->mlen += (uint32_t)n;
+    msg->mlen += ( uint32_t )n;
     STAILQ_INSERT_HEAD(&msg->mhdr, mbuf, next);
 
     return NC_OK;
 }
 
-inline uint64_t
-msg_gen_frag_id(void)
-{
-    return ++frag_id;
+inline uint64_t msg_gen_frag_id(struct msglist* msg_list) {
+    return ++msg_list->frag_id;
 }
 
-static rstatus_t
-msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
-{
-    struct msg *nmsg;
+static rstatus_t msg_parsed(struct context* ctx, struct conn* conn, struct msg* msg) {
+    struct msg* nmsg;
     struct mbuf *mbuf, *nbuf;
 
     mbuf = STAILQ_LAST(&msg->mhdr, mbuf, next);
@@ -596,7 +567,8 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
         return NC_ENOMEM;
     }
 
-    nmsg = msg_get(msg->owner, msg->request, conn->redis);
+    struct msglist* msg_list = msg->owner->server_pool(msg->owner)->ctx->msg_list;
+    nmsg = msg_get(msg_list, msg->owner, msg->request, conn->redis);
     if (nmsg == NULL) {
         mbuf_put(nbuf);
         return NC_ENOMEM;
@@ -613,10 +585,8 @@ msg_parsed(struct context *ctx, struct conn *conn, struct msg *msg)
     return NC_OK;
 }
 
-static rstatus_t
-msg_repair(struct context *ctx, struct conn *conn, struct msg *msg)
-{
-    struct mbuf *nbuf;
+static rstatus_t msg_repair(struct context* ctx, struct conn* conn, struct msg* msg) {
+    struct mbuf* nbuf;
 
     nbuf = mbuf_split(&msg->mhdr, msg->pos, NULL, NULL);
     if (nbuf == NULL) {
@@ -628,9 +598,7 @@ msg_repair(struct context *ctx, struct conn *conn, struct msg *msg)
     return NC_OK;
 }
 
-static rstatus_t
-msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+static rstatus_t msg_parse(struct context* ctx, struct conn* conn, struct msg* msg) {
     rstatus_t status;
 
     if (msg_empty(msg)) {
@@ -642,33 +610,31 @@ msg_parse(struct context *ctx, struct conn *conn, struct msg *msg)
     msg->parser(msg);
 
     switch (msg->result) {
-    case MSG_PARSE_OK:
-        status = msg_parsed(ctx, conn, msg);
-        break;
+        case MSG_PARSE_OK:
+            status = msg_parsed(ctx, conn, msg);
+            break;
 
-    case MSG_PARSE_REPAIR:
-        status = msg_repair(ctx, conn, msg);
-        break;
+        case MSG_PARSE_REPAIR:
+            status = msg_repair(ctx, conn, msg);
+            break;
 
-    case MSG_PARSE_AGAIN:
-        status = NC_OK;
-        break;
+        case MSG_PARSE_AGAIN:
+            status = NC_OK;
+            break;
 
-    default:
-        status = NC_ERROR;
-        conn->err = errno;
-        break;
+        default:
+            status = NC_ERROR;
+            conn->err = errno;
+            break;
     }
 
     return conn->err != 0 ? NC_ERROR : status;
 }
 
-static rstatus_t
-msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+static rstatus_t msg_recv_chain(struct context* ctx, struct conn* conn, struct msg* msg) {
     rstatus_t status;
-    struct msg *nmsg;
-    struct mbuf *mbuf;
+    struct msg* nmsg;
+    struct mbuf* mbuf;
     size_t msize;
     ssize_t n;
 
@@ -695,7 +661,7 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
 
     ASSERT((mbuf->last + n) <= mbuf->end);
     mbuf->last += n;
-    msg->mlen += (uint32_t)n;
+    msg->mlen += ( uint32_t )n;
 
     for (;;) {
         status = msg_parse(ctx, conn, msg);
@@ -716,11 +682,9 @@ msg_recv_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     return NC_OK;
 }
 
-rstatus_t
-msg_recv(struct context *ctx, struct conn *conn)
-{
+rstatus_t msg_recv(struct context* ctx, struct conn* conn) {
     rstatus_t status;
-    struct msg *msg;
+    struct msg* msg;
 
     ASSERT(conn->recv_active);
 
@@ -740,11 +704,9 @@ msg_recv(struct context *ctx, struct conn *conn)
     return NC_OK;
 }
 
-static rstatus_t
-msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
-{
+static rstatus_t msg_send_chain(struct context* ctx, struct conn* conn, struct msg* msg) {
     struct msg_tqh send_msgq;            /* send msg q */
-    struct msg *nmsg;                    /* next msg */
+    struct msg* nmsg;                    /* next msg */
     struct mbuf *mbuf, *nbuf;            /* current and next mbuf */
     size_t mlen;                         /* current mbuf data length */
     struct iovec *ciov, iov[NC_IOV_MAX]; /* current iovec */
@@ -814,7 +776,7 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
         n = 0;
     }
 
-    nsent = n > 0 ? (size_t)n : 0;
+    nsent = n > 0 ? ( size_t )n : 0;
 
     /* postprocess - process sent messages in send_msgq */
 
@@ -867,11 +829,9 @@ msg_send_chain(struct context *ctx, struct conn *conn, struct msg *msg)
     return (n == NC_EAGAIN) ? NC_OK : NC_ERROR;
 }
 
-rstatus_t
-msg_send(struct context *ctx, struct conn *conn)
-{
+rstatus_t msg_send(struct context* ctx, struct conn* conn) {
     rstatus_t status;
-    struct msg *msg;
+    struct msg* msg;
 
     ASSERT(conn->send_active);
 
@@ -897,16 +857,14 @@ msg_send(struct context *ctx, struct conn *conn)
  * Set a placeholder key for a command with no key that is forwarded to an
  * arbitrary backend.
  */
-bool msg_set_placeholder_key(struct msg *r)
-{
-    struct keypos *kpos;
+bool msg_set_placeholder_key(struct msg* r) {
+    struct keypos* kpos;
     ASSERT(array_n(r->keys) == 0);
     kpos = array_push(r->keys);
     if (kpos == NULL) {
         return false;
     }
-    kpos->start = (uint8_t *)"placeholder";
+    kpos->start = ( uint8_t* )"placeholder";
     kpos->end = kpos->start + sizeof("placeholder") - 1;
     return true;
 }
-

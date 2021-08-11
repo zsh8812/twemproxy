@@ -15,35 +15,34 @@
  * limitations under the License.
  */
 
+#include <fcntl.h>
+#include <getopt.h>
+#include <nc_conf.h>
+#include <nc_core.h>
+#include <nc_signal.h>
+#include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <unistd.h>
-#include <signal.h>
-#include <getopt.h>
-#include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
+#include <unistd.h>
+#define NC_CONF_PATH "conf/nutcracker.yml"
 
-#include <nc_core.h>
-#include <nc_conf.h>
-#include <nc_signal.h>
+#define NC_LOG_DEFAULT LOG_NOTICE
+#define NC_LOG_MIN LOG_EMERG
+#define NC_LOG_MAX LOG_PVERB
+#define NC_LOG_PATH NULL
 
-#define NC_CONF_PATH        "conf/nutcracker.yml"
+#define NC_STATS_PORT STATS_PORT
+#define NC_STATS_ADDR STATS_ADDR
+#define NC_STATS_INTERVAL STATS_INTERVAL
 
-#define NC_LOG_DEFAULT      LOG_NOTICE
-#define NC_LOG_MIN          LOG_EMERG
-#define NC_LOG_MAX          LOG_PVERB
-#define NC_LOG_PATH         NULL
+#define NC_PID_FILE NULL
 
-#define NC_STATS_PORT       STATS_PORT
-#define NC_STATS_ADDR       STATS_ADDR
-#define NC_STATS_INTERVAL   STATS_INTERVAL
-
-#define NC_PID_FILE         NULL
-
-#define NC_MBUF_SIZE        MBUF_SIZE
-#define NC_MBUF_MIN_SIZE    MBUF_MIN_SIZE
-#define NC_MBUF_MAX_SIZE    MBUF_MAX_SIZE
+#define NC_MBUF_SIZE MBUF_SIZE
+#define NC_MBUF_MIN_SIZE MBUF_MIN_SIZE
+#define NC_MBUF_MAX_SIZE MBUF_MAX_SIZE
 
 static int show_help;
 static int show_version;
@@ -51,44 +50,40 @@ static int test_conf;
 static int daemonize;
 static int describe_stats;
 
-static const struct option long_options[] = {
-    { "help",           no_argument,        NULL,   'h' },
-    { "version",        no_argument,        NULL,   'V' },
-    { "test-conf",      no_argument,        NULL,   't' },
-    { "daemonize",      no_argument,        NULL,   'd' },
-    { "describe-stats", no_argument,        NULL,   'D' },
-    { "verbose",        required_argument,  NULL,   'v' },
-    { "output",         required_argument,  NULL,   'o' },
-    { "conf-file",      required_argument,  NULL,   'c' },
-    { "stats-port",     required_argument,  NULL,   's' },
-    { "stats-interval", required_argument,  NULL,   'i' },
-    { "stats-addr",     required_argument,  NULL,   'a' },
-    { "pid-file",       required_argument,  NULL,   'p' },
-    { "mbuf-size",      required_argument,  NULL,   'm' },
-    { NULL,             0,                  NULL,    0  }
-};
+static const struct option long_options[] = {{"help", no_argument, NULL, 'h'},
+                                             {"version", no_argument, NULL, 'V'},
+                                             {"test-conf", no_argument, NULL, 't'},
+                                             {"daemonize", no_argument, NULL, 'd'},
+                                             {"describe-stats", no_argument, NULL, 'D'},
+                                             {"verbose", required_argument, NULL, 'v'},
+                                             {"output", required_argument, NULL, 'o'},
+                                             {"conf-file", required_argument, NULL, 'c'},
+                                             {"stats-port", required_argument, NULL, 's'},
+                                             {"stats-interval", required_argument, NULL, 'i'},
+                                             {"stats-addr", required_argument, NULL, 'a'},
+                                             {"pid-file", required_argument, NULL, 'p'},
+                                             {"mbuf-size", required_argument, NULL, 'm'},
+                                             {NULL, 0, NULL, 0}};
 
 static const char short_options[] = "hVtdDv:o:c:s:i:a:p:m:";
 
-static rstatus_t
-nc_daemonize(int dump_core)
-{
+static rstatus_t nc_daemonize(int dump_core) {
     rstatus_t status;
     pid_t pid, sid;
     int fd;
 
     pid = fork();
     switch (pid) {
-    case -1:
-        log_error("fork() failed: %s", strerror(errno));
-        return NC_ERROR;
+        case -1:
+            log_error("fork() failed: %s", strerror(errno));
+            return NC_ERROR;
 
-    case 0:
-        break;
+        case 0:
+            break;
 
-    default:
-        /* parent terminates */
-        _exit(0);
+        default:
+            /* parent terminates */
+            _exit(0);
     }
 
     /* 1st child continues and becomes the session leader */
@@ -106,16 +101,16 @@ nc_daemonize(int dump_core)
 
     pid = fork();
     switch (pid) {
-    case -1:
-        log_error("fork() failed: %s", strerror(errno));
-        return NC_ERROR;
+        case -1:
+            log_error("fork() failed: %s", strerror(errno));
+            return NC_ERROR;
 
-    case 0:
-        break;
+        case 0:
+            break;
 
-    default:
-        /* 1st child terminates */
-        _exit(0);
+        default:
+            /* 1st child terminates */
+            _exit(0);
     }
 
     /* 2nd child continues */
@@ -172,9 +167,7 @@ nc_daemonize(int dump_core)
     return NC_OK;
 }
 
-static void
-nc_print_run(const struct instance *nci)
-{
+static void nc_print_run(const struct instance* nci) {
     int status;
     struct utsname name;
 
@@ -183,7 +176,10 @@ nc_print_run(const struct instance *nci)
         loga("nutcracker-%s started on pid %d", NC_VERSION_STRING, nci->pid);
     } else {
         loga("nutcracker-%s built for %s %s %s started on pid %d",
-             NC_VERSION_STRING, name.sysname, name.release, name.machine,
+             NC_VERSION_STRING,
+             name.sysname,
+             name.release,
+             name.machine,
              nci->pid);
     }
 
@@ -192,27 +188,19 @@ nc_print_run(const struct instance *nci)
          "it's time to dig another one");
 }
 
-static void
-nc_print_done(void)
-{
+static void nc_print_done(void) {
     loga("done, rabbit done");
 }
 
-static void
-nc_show_usage(void)
-{
-    log_stderr(
-        "Usage: nutcracker [-?hVdDt] [-v verbosity level] [-o output file]" CRLF
-        "                  [-c conf file] [-s stats port] [-a stats addr]" CRLF
-        "                  [-i stats interval] [-p pid file] [-m mbuf size]" CRLF
-        "");
-    log_stderr(
-        "Options:" CRLF
-        "  -h, --help             : this help" CRLF
-        "  -V, --version          : show version and exit" CRLF
-        "  -t, --test-conf        : test configuration for syntax errors and exit" CRLF
-        "  -d, --daemonize        : run as a daemon" CRLF
-        "  -D, --describe-stats   : print stats description and exit");
+static void nc_show_usage(void) {
+    log_stderr("Usage: nutcracker [-?hVdDt] [-v verbosity level] [-o output file]" CRLF
+               "                  [-c conf file] [-s stats port] [-a stats addr]" CRLF
+               "                  [-i stats interval] [-p pid file] [-m mbuf size]" CRLF "");
+    log_stderr("Options:" CRLF "  -h, --help             : this help" CRLF
+               "  -V, --version          : show version and exit" CRLF
+               "  -t, --test-conf        : test configuration for syntax errors and exit" CRLF
+               "  -d, --daemonize        : run as a daemon" CRLF
+               "  -D, --describe-stats   : print stats description and exit");
     log_stderr(
         "  -v, --verbose=N        : set logging level (default: %d, min: %d, max: %d)" CRLF
         "  -o, --output=S         : set logging file (default: %s)" CRLF
@@ -221,27 +209,27 @@ nc_show_usage(void)
         "  -a, --stats-addr=S     : set stats monitoring ip (default: %s)" CRLF
         "  -i, --stats-interval=N : set stats aggregation interval in msec (default: %d msec)" CRLF
         "  -p, --pid-file=S       : set pid file (default: %s)" CRLF
-        "  -m, --mbuf-size=N      : set size of mbuf chunk in bytes (default: %d bytes)" CRLF
-        "",
-        NC_LOG_DEFAULT, NC_LOG_MIN, NC_LOG_MAX,
+        "  -m, --mbuf-size=N      : set size of mbuf chunk in bytes (default: %d bytes)" CRLF "",
+        NC_LOG_DEFAULT,
+        NC_LOG_MIN,
+        NC_LOG_MAX,
         NC_LOG_PATH != NULL ? NC_LOG_PATH : "stderr",
         NC_CONF_PATH,
-        NC_STATS_PORT, NC_STATS_ADDR, NC_STATS_INTERVAL,
+        NC_STATS_PORT,
+        NC_STATS_ADDR,
+        NC_STATS_INTERVAL,
         NC_PID_FILE != NULL ? NC_PID_FILE : "off",
         NC_MBUF_SIZE);
 }
 
-static rstatus_t
-nc_create_pidfile(struct instance *nci)
-{
+static rstatus_t nc_create_pidfile(struct instance* nci) {
     char pid[NC_UINTMAX_MAXLEN];
     int fd, pid_len;
     ssize_t n;
 
     fd = open(nci->pid_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd < 0) {
-        log_error("opening pid file '%s' failed: %s", nci->pid_filename,
-                  strerror(errno));
+        log_error("opening pid file '%s' failed: %s", nci->pid_filename, strerror(errno));
         return NC_ERROR;
     }
     nci->pidfile = 1;
@@ -250,8 +238,7 @@ nc_create_pidfile(struct instance *nci)
 
     n = nc_write(fd, pid, pid_len);
     if (n < 0) {
-        log_error("write to pid file '%s' failed: %s", nci->pid_filename,
-                  strerror(errno));
+        log_error("write to pid file '%s' failed: %s", nci->pid_filename, strerror(errno));
         return NC_ERROR;
     }
 
@@ -260,21 +247,17 @@ nc_create_pidfile(struct instance *nci)
     return NC_OK;
 }
 
-static void
-nc_remove_pidfile(struct instance *nci)
-{
+static void nc_remove_pidfile(struct instance* nci) {
     int status;
 
     status = unlink(nci->pid_filename);
     if (status < 0) {
-        log_error("unlink of pid file '%s' failed, ignored: %s",
-                  nci->pid_filename, strerror(errno));
+        log_error(
+            "unlink of pid file '%s' failed, ignored: %s", nci->pid_filename, strerror(errno));
     }
 }
 
-static void
-nc_set_default_options(struct instance *nci)
-{
+static void nc_set_default_options(struct instance* nci) {
     int status;
 
     nci->ctx = NULL;
@@ -297,14 +280,12 @@ nc_set_default_options(struct instance *nci)
 
     nci->mbuf_chunk_size = NC_MBUF_SIZE;
 
-    nci->pid = (pid_t)-1;
+    nci->pid = ( pid_t )-1;
     nci->pid_filename = NULL;
     nci->pidfile = 0;
 }
 
-static rstatus_t
-nc_get_options(int argc, char **argv, struct instance *nci)
-{
+static rstatus_t nc_get_options(int argc, char** argv, struct instance* nci) {
     int c, value;
 
     opterr = 0;
@@ -317,124 +298,125 @@ nc_get_options(int argc, char **argv, struct instance *nci)
         }
 
         switch (c) {
-        case 'h':
-            show_version = 1;
-            show_help = 1;
-            break;
-
-        case 'V':
-            show_version = 1;
-            break;
-
-        case 't':
-            test_conf = 1;
-            break;
-
-        case 'd':
-            daemonize = 1;
-            break;
-
-        case 'D':
-            describe_stats = 1;
-            show_version = 1;
-            break;
-
-        case 'v':
-            value = nc_atoi(optarg, strlen(optarg));
-            if (value < 0) {
-                log_stderr("nutcracker: option -v requires a number");
-                return NC_ERROR;
-            }
-            nci->log_level = value;
-            break;
-
-        case 'o':
-            nci->log_filename = optarg;
-            break;
-
-        case 'c':
-            nci->conf_filename = optarg;
-            break;
-
-        case 's':
-            value = nc_atoi(optarg, strlen(optarg));
-            if (value < 0) {
-                log_stderr("nutcracker: option -s requires a number");
-                return NC_ERROR;
-            }
-            if (!nc_valid_port(value)) {
-                log_stderr("nutcracker: option -s value %d is not a valid "
-                           "port", value);
-                return NC_ERROR;
-            }
-
-            nci->stats_port = (uint16_t)value;
-            break;
-
-        case 'i':
-            value = nc_atoi(optarg, strlen(optarg));
-            if (value < 0) {
-                log_stderr("nutcracker: option -i requires a number");
-                return NC_ERROR;
-            }
-
-            nci->stats_interval = value;
-            break;
-
-        case 'a':
-            nci->stats_addr = optarg;
-            break;
-
-        case 'p':
-            nci->pid_filename = optarg;
-            break;
-
-        case 'm':
-            value = nc_atoi(optarg, strlen(optarg));
-            if (value <= 0) {
-                log_stderr("nutcracker: option -m requires a non-zero number");
-                return NC_ERROR;
-            }
-
-            if (value < NC_MBUF_MIN_SIZE || value > NC_MBUF_MAX_SIZE) {
-                log_stderr("nutcracker: mbuf chunk size must be between %d and"
-                           " %d bytes", NC_MBUF_MIN_SIZE, NC_MBUF_MAX_SIZE);
-                return NC_ERROR;
-            }
-
-            nci->mbuf_chunk_size = (size_t)value;
-            break;
-
-        case '?':
-            switch (optopt) {
-            case 'o':
-            case 'c':
-            case 'p':
-                log_stderr("nutcracker: option -%c requires a file name",
-                           optopt);
+            case 'h':
+                show_version = 1;
+                show_help = 1;
                 break;
 
-            case 'm':
+            case 'V':
+                show_version = 1;
+                break;
+
+            case 't':
+                test_conf = 1;
+                break;
+
+            case 'd':
+                daemonize = 1;
+                break;
+
+            case 'D':
+                describe_stats = 1;
+                show_version = 1;
+                break;
+
             case 'v':
+                value = nc_atoi(optarg, strlen(optarg));
+                if (value < 0) {
+                    log_stderr("nutcracker: option -v requires a number");
+                    return NC_ERROR;
+                }
+                nci->log_level = value;
+                break;
+
+            case 'o':
+                nci->log_filename = optarg;
+                break;
+
+            case 'c':
+                nci->conf_filename = optarg;
+                break;
+
             case 's':
+                value = nc_atoi(optarg, strlen(optarg));
+                if (value < 0) {
+                    log_stderr("nutcracker: option -s requires a number");
+                    return NC_ERROR;
+                }
+                if (!nc_valid_port(value)) {
+                    log_stderr("nutcracker: option -s value %d is not a valid "
+                               "port",
+                               value);
+                    return NC_ERROR;
+                }
+
+                nci->stats_port = ( uint16_t )value;
+                break;
+
             case 'i':
-                log_stderr("nutcracker: option -%c requires a number", optopt);
+                value = nc_atoi(optarg, strlen(optarg));
+                if (value < 0) {
+                    log_stderr("nutcracker: option -i requires a number");
+                    return NC_ERROR;
+                }
+
+                nci->stats_interval = value;
                 break;
 
             case 'a':
-                log_stderr("nutcracker: option -%c requires a string", optopt);
+                nci->stats_addr = optarg;
                 break;
+
+            case 'p':
+                nci->pid_filename = optarg;
+                break;
+
+            case 'm':
+                value = nc_atoi(optarg, strlen(optarg));
+                if (value <= 0) {
+                    log_stderr("nutcracker: option -m requires a non-zero number");
+                    return NC_ERROR;
+                }
+
+                if (value < NC_MBUF_MIN_SIZE || value > NC_MBUF_MAX_SIZE) {
+                    log_stderr("nutcracker: mbuf chunk size must be between %d and"
+                               " %d bytes",
+                               NC_MBUF_MIN_SIZE,
+                               NC_MBUF_MAX_SIZE);
+                    return NC_ERROR;
+                }
+
+                nci->mbuf_chunk_size = ( size_t )value;
+                break;
+
+            case '?':
+                switch (optopt) {
+                    case 'o':
+                    case 'c':
+                    case 'p':
+                        log_stderr("nutcracker: option -%c requires a file name", optopt);
+                        break;
+
+                    case 'm':
+                    case 'v':
+                    case 's':
+                    case 'i':
+                        log_stderr("nutcracker: option -%c requires a number", optopt);
+                        break;
+
+                    case 'a':
+                        log_stderr("nutcracker: option -%c requires a string", optopt);
+                        break;
+
+                    default:
+                        log_stderr("nutcracker: invalid option -- '%c'", optopt);
+                        break;
+                }
+                return NC_ERROR;
 
             default:
                 log_stderr("nutcracker: invalid option -- '%c'", optopt);
-                break;
-            }
-            return NC_ERROR;
-
-        default:
-            log_stderr("nutcracker: invalid option -- '%c'", optopt);
-            return NC_ERROR;
-
+                return NC_ERROR;
         }
     }
 
@@ -445,28 +427,22 @@ nc_get_options(int argc, char **argv, struct instance *nci)
  * Returns true if configuration file has a valid syntax, otherwise
  * returns false
  */
-static bool
-nc_test_conf(const struct instance *nci)
-{
-    struct conf *cf;
+static bool nc_test_conf(const struct instance* nci) {
+    struct conf* cf;
 
     cf = conf_create(nci->conf_filename);
     if (cf == NULL) {
-        log_stderr("nutcracker: configuration file '%s' syntax is invalid",
-                   nci->conf_filename);
+        log_stderr("nutcracker: configuration file '%s' syntax is invalid", nci->conf_filename);
         return false;
     }
 
     conf_destroy(cf);
 
-    log_stderr("nutcracker: configuration file '%s' syntax is ok",
-               nci->conf_filename);
+    log_stderr("nutcracker: configuration file '%s' syntax is ok", nci->conf_filename);
     return true;
 }
 
-static rstatus_t
-nc_pre_run(struct instance *nci)
-{
+static rstatus_t nc_pre_run(struct instance* nci) {
     rstatus_t status;
 
     status = log_init(nci->log_level, nci->log_filename);
@@ -500,9 +476,7 @@ nc_pre_run(struct instance *nci)
     return NC_OK;
 }
 
-static void
-nc_post_run(struct instance *nci)
-{
+static void nc_post_run(struct instance* nci) {
     if (nci->pidfile) {
         nc_remove_pidfile(nci);
     }
@@ -514,11 +488,9 @@ nc_post_run(struct instance *nci)
     log_deinit();
 }
 
-static void
-nc_run(struct instance *nci)
-{
+static void nc_run(struct instance* nci) {
     rstatus_t status;
-    struct context *ctx;
+    struct context* ctx;
 
     ctx = core_start(nci);
     if (ctx == NULL) {
@@ -536,9 +508,7 @@ nc_run(struct instance *nci)
     core_stop(ctx);
 }
 
-int
-main(int argc, char **argv)
-{
+int main(int argc, char** argv) {
     rstatus_t status;
     struct instance nci;
 
@@ -562,7 +532,8 @@ main(int argc, char **argv)
         log_stderr("async event backend: unknown");
 #endif
 #if HAVE_ASSERT_PANIC || HAVE_ASSERT_LOG
-        log_stderr("debugging assertions are enabled (--enable-debug=yes|full), nutcracker may be less efficient");
+        log_stderr("debugging assertions are enabled (--enable-debug=yes|full), nutcracker may be "
+                   "less efficient");
 #endif
         // Log a blank line after the version
         log_stderr("");
@@ -591,7 +562,23 @@ main(int argc, char **argv)
         exit(1);
     }
 
-    nc_run(&nci);
+    int thread_num = 5;
+    pthread_t* ntid = ( pthread_t* )malloc(thread_num * sizeof(pthread_t));
+    struct instance* nci_tmp = ( struct instance* )malloc(thread_num * sizeof(struct instance));
+    int i = 0;
+    for (; i < thread_num; i++) {
+        nci_tmp[i] = nci;
+        status = pthread_create(ntid + i, NULL, nc_run, &(nci_tmp[i]));
+        if (status < 0) {
+            log_error("stats aggregator create failed: %s", strerror(status));
+            return NC_ERROR;
+        }
+    }
+    // nc_run(&nci);
+    for (i = 0; i < thread_num; i++) {
+        pthread_join(*(ntid + i), NULL);
+    }
+    free(ntid);
 
     nc_post_run(&nci);
 

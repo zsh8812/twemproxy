@@ -15,18 +15,16 @@
  * limitations under the License.
  */
 
+#include <nc_conf.h>
+#include <nc_core.h>
+#include <nc_proxy.h>
+#include <nc_server.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <nc_core.h>
-#include <nc_conf.h>
-#include <nc_server.h>
-#include <nc_proxy.h>
 
 static uint32_t ctx_id; /* context generation */
 
-static rstatus_t
-core_calc_connections(struct context *ctx)
-{
+static rstatus_t core_calc_connections(struct context* ctx) {
     int status;
     struct rlimit limit;
 
@@ -36,20 +34,21 @@ core_calc_connections(struct context *ctx)
         return NC_ERROR;
     }
 
-    ctx->max_nfd = (uint32_t)limit.rlim_cur;
+    ctx->max_nfd = ( uint32_t )limit.rlim_cur;
     ctx->max_ncconn = ctx->max_nfd - ctx->max_nsconn - RESERVED_FDS;
-    log_debug(LOG_NOTICE, "max fds %"PRIu32" max client conns %"PRIu32" "
-              "max server conns %"PRIu32"", ctx->max_nfd, ctx->max_ncconn,
+    log_debug(LOG_NOTICE,
+              "max fds %" PRIu32 " max client conns %" PRIu32 " "
+              "max server conns %" PRIu32 "",
+              ctx->max_nfd,
+              ctx->max_ncconn,
               ctx->max_nsconn);
 
     return NC_OK;
 }
 
-static struct context *
-core_ctx_create(struct instance *nci)
-{
+static struct context* core_ctx_create(struct instance* nci) {
     rstatus_t status;
-    struct context *ctx;
+    struct context* ctx;
 
     ctx = nc_alloc(sizeof(*ctx));
     if (ctx == NULL) {
@@ -94,8 +93,8 @@ core_ctx_create(struct instance *nci)
     }
 
     /* create stats per server pool */
-    ctx->stats = stats_create(nci->stats_port, nci->stats_addr, nci->stats_interval,
-                              nci->hostname, &ctx->pool);
+    ctx->stats = stats_create(
+        nci->stats_port, nci->stats_addr, nci->stats_interval, nci->hostname, &ctx->pool);
     if (ctx->stats == NULL) {
         server_pool_deinit(&ctx->pool);
         conf_destroy(ctx->cf);
@@ -137,15 +136,13 @@ core_ctx_create(struct instance *nci)
         return NULL;
     }
 
-    log_debug(LOG_VVERB, "created ctx %p id %"PRIu32"", ctx, ctx->id);
+    log_debug(LOG_VVERB, "created ctx %p id %" PRIu32 "", ctx, ctx->id);
 
     return ctx;
 }
 
-static void
-core_ctx_destroy(struct context *ctx)
-{
-    log_debug(LOG_VVERB, "destroy ctx %p id %"PRIu32"", ctx, ctx->id);
+static void core_ctx_destroy(struct context* ctx) {
+    log_debug(LOG_VVERB, "destroy ctx %p id %" PRIu32 "", ctx, ctx->id);
     proxy_deinit(ctx);
     server_pool_disconnect(ctx);
     event_base_destroy(ctx->evb);
@@ -155,73 +152,69 @@ core_ctx_destroy(struct context *ctx)
     nc_free(ctx);
 }
 
-struct context *
-core_start(struct instance *nci)
-{
-    struct context *ctx;
+struct context* core_start(struct instance* nci) {
+    struct context* ctx;
 
     mbuf_init(nci);
-    msg_init();
     conn_init();
 
     ctx = core_ctx_create(nci);
     if (ctx != NULL) {
         nci->ctx = ctx;
+        msg_init(&ctx->msg_list);
         return ctx;
     }
 
     conn_deinit();
-    msg_deinit();
+    // msg_deinit(ctx->msg_list);
     mbuf_deinit();
 
     return NULL;
 }
 
-void
-core_stop(struct context *ctx)
-{
+void core_stop(struct context* ctx) {
     conn_deinit();
-    msg_deinit();
+    msg_deinit(ctx->msg_list);
     mbuf_deinit();
     core_ctx_destroy(ctx);
 }
 
-static rstatus_t
-core_recv(struct context *ctx, struct conn *conn)
-{
+static rstatus_t core_recv(struct context* ctx, struct conn* conn) {
     rstatus_t status;
 
     status = conn->recv(ctx, conn);
     if (status != NC_OK) {
-        log_debug(LOG_INFO, "recv on %c %d failed: %s",
-                  conn->client ? 'c' : (conn->proxy ? 'p' : 's'), conn->sd,
+        log_debug(LOG_INFO,
+                  "recv on %c %d failed: %s",
+                  conn->client ? 'c' : (conn->proxy ? 'p' : 's'),
+                  conn->sd,
                   strerror(errno));
     }
 
     return status;
 }
 
-static rstatus_t
-core_send(struct context *ctx, struct conn *conn)
-{
+static rstatus_t core_send(struct context* ctx, struct conn* conn) {
     rstatus_t status;
 
     status = conn->send(ctx, conn);
     if (status != NC_OK) {
-        log_debug(LOG_INFO, "send on %c %d failed: status: %d errno: %d %s",
-                  conn->client ? 'c' : (conn->proxy ? 'p' : 's'), conn->sd,
-                  status, errno, strerror(errno));
+        log_debug(LOG_INFO,
+                  "send on %c %d failed: status: %d errno: %d %s",
+                  conn->client ? 'c' : (conn->proxy ? 'p' : 's'),
+                  conn->sd,
+                  status,
+                  errno,
+                  strerror(errno));
     }
 
     return status;
 }
 
-static void
-core_close(struct context *ctx, struct conn *conn)
-{
+static void core_close(struct context* ctx, struct conn* conn) {
     rstatus_t status;
     char type;
-    const char *addrstr;
+    const char* addrstr;
 
     ASSERT(conn->sd > 0);
 
@@ -232,45 +225,48 @@ core_close(struct context *ctx, struct conn *conn)
         type = conn->proxy ? 'p' : 's';
         addrstr = nc_unresolve_addr(conn->addr, conn->addrlen);
     }
-    log_debug(LOG_NOTICE, "close %c %d '%s' on event %04"PRIX32" eof %d done "
-              "%d rb %zu sb %zu%c %s", type, conn->sd, addrstr, conn->events,
-              conn->eof, conn->done, conn->recv_bytes, conn->send_bytes,
-              conn->err ? ':' : ' ', conn->err ? strerror(conn->err) : "");
+    log_debug(LOG_NOTICE,
+              "close %c %d '%s' on event %04" PRIX32 " eof %d done "
+              "%d rb %zu sb %zu%c %s",
+              type,
+              conn->sd,
+              addrstr,
+              conn->events,
+              conn->eof,
+              conn->done,
+              conn->recv_bytes,
+              conn->send_bytes,
+              conn->err ? ':' : ' ',
+              conn->err ? strerror(conn->err) : "");
 
     status = event_del_conn(ctx->evb, conn);
     if (status < 0) {
-        log_warn("event del conn %c %d failed, ignored: %s",
-                 type, conn->sd, strerror(errno));
+        log_warn("event del conn %c %d failed, ignored: %s", type, conn->sd, strerror(errno));
     }
 
     conn->close(ctx, conn);
 }
 
-static void
-core_error(struct context *ctx, struct conn *conn)
-{
+static void core_error(struct context* ctx, struct conn* conn) {
     rstatus_t status;
     char type = conn->client ? 'c' : (conn->proxy ? 'p' : 's');
 
     status = nc_get_soerror(conn->sd);
     if (status < 0) {
-        log_warn("get soerr on %c %d failed, ignored: %s", type, conn->sd,
-                  strerror(errno));
+        log_warn("get soerr on %c %d failed, ignored: %s", type, conn->sd, strerror(errno));
     }
     conn->err = errno;
 
     core_close(ctx, conn);
 }
 
-static void
-core_timeout(struct context *ctx)
-{
+static void core_timeout(struct context* ctx) {
     for (;;) {
-        struct msg *msg;
-        struct conn *conn;
+        struct msg* msg;
+        struct conn* conn;
         int64_t now, then;
 
-        msg = msg_tmo_min();
+        msg = msg_tmo_min(ctx->msg_list);
         if (msg == NULL) {
             ctx->timeout = ctx->max_timeout;
             return;
@@ -279,7 +275,7 @@ core_timeout(struct context *ctx)
         /* skip over req that are in-error or done */
 
         if (msg->error || msg->done) {
-            msg_tmo_delete(msg);
+            msg_tmo_delete(ctx->msg_list, msg);
             continue;
         }
 
@@ -293,26 +289,24 @@ core_timeout(struct context *ctx)
 
         now = nc_msec_now();
         if (now < then) {
-            int delta = (int)(then - now);
+            int delta = ( int )(then - now);
             ctx->timeout = MIN(delta, ctx->max_timeout);
             return;
         }
 
-        log_debug(LOG_INFO, "req %"PRIu64" on s %d timedout", msg->id, conn->sd);
+        log_debug(LOG_INFO, "req %" PRIu64 " on s %d timedout", msg->id, conn->sd);
 
-        msg_tmo_delete(msg);
+        msg_tmo_delete(ctx->msg_list, msg);
         conn->err = ETIMEDOUT;
 
         core_close(ctx, conn);
     }
 }
 
-rstatus_t
-core_core(void *arg, uint32_t events)
-{
+rstatus_t core_core(void* arg, uint32_t events) {
     rstatus_t status;
-    struct conn *conn = arg;
-    struct context *ctx;
+    struct conn* conn = arg;
+    struct context* ctx;
 
     if (conn->owner == NULL) {
         log_warn("conn is already unrefed!");
@@ -321,8 +315,11 @@ core_core(void *arg, uint32_t events)
 
     ctx = conn_to_ctx(conn);
 
-    log_debug(LOG_VVERB, "event %04"PRIX32" on %c %d", events,
-              conn->client ? 'c' : (conn->proxy ? 'p' : 's'), conn->sd);
+    log_debug(LOG_VVERB,
+              "event %04" PRIX32 " on %c %d",
+              events,
+              conn->client ? 'c' : (conn->proxy ? 'p' : 's'),
+              conn->sd);
 
     conn->events = events;
 
@@ -352,9 +349,7 @@ core_core(void *arg, uint32_t events)
     return NC_OK;
 }
 
-rstatus_t
-core_loop(struct context *ctx)
-{
+rstatus_t core_loop(struct context* ctx) {
     int nsd;
 
     nsd = event_wait(ctx->evb, ctx->timeout);

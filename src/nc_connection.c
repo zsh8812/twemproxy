@@ -15,13 +15,12 @@
  * limitations under the License.
  */
 
-#include <sys/uio.h>
-
-#include <nc_core.h>
-#include <nc_server.h>
 #include <nc_client.h>
+#include <nc_core.h>
 #include <nc_proxy.h>
+#include <nc_server.h>
 #include <proto/nc_proto.h>
+#include <sys/uio.h>
 
 /*
  *                   nc_connection.[ch]
@@ -90,25 +89,21 @@ static uint32_t ncurr_cconn;       /* current # client connections */
 /*
  * Return the context associated with this connection.
  */
-struct context *
-conn_to_ctx(const struct conn *conn)
-{
-    struct server_pool *pool;
+struct context* conn_to_ctx(const struct conn* conn) {
+    struct server_pool* pool;
 
     if (conn->proxy || conn->client) {
         pool = conn->owner;
     } else {
-        struct server *server = conn->owner;
+        struct server* server = conn->owner;
         pool = server->owner;
     }
 
     return pool->ctx;
 }
 
-static struct conn *
-_conn_get(void)
-{
-    struct conn *conn;
+static struct conn* _conn_get(void) {
+    struct conn* conn;
 
     if (!TAILQ_EMPTY(&free_connq)) {
         ASSERT(nfree_connq > 0);
@@ -164,10 +159,8 @@ _conn_get(void)
     return conn;
 }
 
-struct conn *
-conn_get(void *owner, bool client, bool redis)
-{
-    struct conn *conn;
+struct conn* conn_get(void* owner, bool client, bool redis) {
+    struct conn* conn;
 
     conn = _conn_get();
     if (conn == NULL) {
@@ -197,6 +190,7 @@ conn_get(void *owner, bool client, bool redis)
 
         conn->ref = client_ref;
         conn->unref = client_unref;
+        conn->server_pool = client_server_pool;
 
         conn->enqueue_inq = NULL;
         conn->dequeue_inq = NULL;
@@ -224,17 +218,18 @@ conn_get(void *owner, bool client, bool redis)
 
         conn->ref = server_ref;
         conn->unref = server_unref;
+        conn->server_pool = server_server_pool;
 
         conn->enqueue_inq = req_server_enqueue_imsgq;
         conn->dequeue_inq = req_server_dequeue_imsgq;
         conn->enqueue_outq = req_server_enqueue_omsgq;
         conn->dequeue_outq = req_server_dequeue_omsgq;
         if (redis) {
-          conn->post_connect = redis_post_connect;
-          conn->swallow_msg = redis_swallow_msg;
+            conn->post_connect = redis_post_connect;
+            conn->swallow_msg = redis_swallow_msg;
         } else {
-          conn->post_connect = memcache_post_connect;
-          conn->swallow_msg = memcache_swallow_msg;
+            conn->post_connect = memcache_post_connect;
+            conn->swallow_msg = memcache_swallow_msg;
         }
     }
 
@@ -244,10 +239,8 @@ conn_get(void *owner, bool client, bool redis)
     return conn;
 }
 
-struct conn *
-conn_get_proxy(struct server_pool *pool)
-{
-    struct conn *conn;
+struct conn* conn_get_proxy(struct server_pool* pool) {
+    struct conn* conn;
 
     conn = _conn_get();
     if (conn == NULL) {
@@ -284,16 +277,12 @@ conn_get_proxy(struct server_pool *pool)
     return conn;
 }
 
-static void
-conn_free(struct conn *conn)
-{
+static void conn_free(struct conn* conn) {
     log_debug(LOG_VVERB, "free conn %p", conn);
     nc_free(conn);
 }
 
-void
-conn_put(struct conn *conn)
-{
+void conn_put(struct conn* conn) {
     ASSERT(conn->sd < 0);
     ASSERT(conn->owner == NULL);
 
@@ -308,21 +297,16 @@ conn_put(struct conn *conn)
     ncurr_conn--;
 }
 
-void
-conn_init(void)
-{
-    log_debug(LOG_DEBUG, "conn size %d", (int)sizeof(struct conn));
+void conn_init(void) {
+    log_debug(LOG_DEBUG, "conn size %d", ( int )sizeof(struct conn));
     nfree_connq = 0;
     TAILQ_INIT(&free_connq);
 }
 
-void
-conn_deinit(void)
-{
+void conn_deinit(void) {
     struct conn *conn, *nconn; /* current and next connection */
 
-    for (conn = TAILQ_FIRST(&free_connq); conn != NULL;
-         conn = nconn, nfree_connq--) {
+    for (conn = TAILQ_FIRST(&free_connq); conn != NULL; conn = nconn, nfree_connq--) {
         ASSERT(nfree_connq > 0);
         nconn = TAILQ_NEXT(conn, conn_tqe);
         conn_free(conn);
@@ -330,9 +314,7 @@ conn_deinit(void)
     ASSERT(nfree_connq == 0);
 }
 
-ssize_t
-conn_recv(struct conn *conn, void *buf, size_t size)
-{
+ssize_t conn_recv(struct conn* conn, void* buf, size_t size) {
     ssize_t n;
 
     ASSERT(buf != NULL);
@@ -345,18 +327,21 @@ conn_recv(struct conn *conn, void *buf, size_t size)
         log_debug(LOG_VERB, "recv on sd %d %zd of %zu", conn->sd, n, size);
 
         if (n > 0) {
-            if (n < (ssize_t) size) {
+            if (n < ( ssize_t )size) {
                 conn->recv_ready = 0;
             }
-            conn->recv_bytes += (size_t)n;
+            conn->recv_bytes += ( size_t )n;
             return n;
         }
 
         if (n == 0) {
             conn->recv_ready = 0;
             conn->eof = 1;
-            log_debug(LOG_INFO, "recv on sd %d eof rb %zu sb %zu", conn->sd,
-                      conn->recv_bytes, conn->send_bytes);
+            log_debug(LOG_INFO,
+                      "recv on sd %d eof rb %zu sb %zu",
+                      conn->sd,
+                      conn->recv_bytes,
+                      conn->send_bytes);
             return n;
         }
 
@@ -380,9 +365,7 @@ conn_recv(struct conn *conn, void *buf, size_t size)
     return NC_ERROR;
 }
 
-ssize_t
-conn_sendv(struct conn *conn, const struct array *sendv, size_t nsend)
-{
+ssize_t conn_sendv(struct conn* conn, const struct array* sendv, size_t nsend) {
     ssize_t n;
 
     ASSERT(array_n(sendv) > 0);
@@ -392,14 +375,18 @@ conn_sendv(struct conn *conn, const struct array *sendv, size_t nsend)
     for (;;) {
         n = nc_writev(conn->sd, sendv->elem, sendv->nelem);
 
-        log_debug(LOG_VERB, "sendv on sd %d %zd of %zu in %"PRIu32" buffers",
-                  conn->sd, n, nsend, sendv->nelem);
+        log_debug(LOG_VERB,
+                  "sendv on sd %d %zd of %zu in %" PRIu32 " buffers",
+                  conn->sd,
+                  n,
+                  nsend,
+                  sendv->nelem);
 
         if (n > 0) {
-            if (n < (ssize_t) nsend) {
+            if (n < ( ssize_t )nsend) {
                 conn->send_ready = 0;
             }
-            conn->send_bytes += (size_t)n;
+            conn->send_bytes += ( size_t )n;
             return n;
         }
 
@@ -429,21 +416,15 @@ conn_sendv(struct conn *conn, const struct array *sendv, size_t nsend)
     return NC_ERROR;
 }
 
-uint32_t
-conn_ncurr_conn(void)
-{
+uint32_t conn_ncurr_conn(void) {
     return ncurr_conn;
 }
 
-uint64_t
-conn_ntotal_conn(void)
-{
+uint64_t conn_ntotal_conn(void) {
     return ntotal_conn;
 }
 
-uint32_t
-conn_ncurr_cconn(void)
-{
+uint32_t conn_ncurr_cconn(void) {
     return ncurr_cconn;
 }
 
@@ -451,14 +432,12 @@ conn_ncurr_cconn(void)
  * Returns true if the connection is authenticated or doesn't require
  * authentication, otherwise return false
  */
-bool
-conn_authenticated(const struct conn *conn)
-{
-    struct server_pool *pool;
+bool conn_authenticated(const struct conn* conn) {
+    struct server_pool* pool;
 
     ASSERT(!conn->proxy);
 
-    pool = conn->client ? conn->owner : ((struct server *)conn->owner)->owner;
+    pool = conn->client ? conn->owner : (( struct server* )conn->owner)->owner;
 
     if (!pool->require_auth) {
         return true;

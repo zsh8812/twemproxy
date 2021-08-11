@@ -16,7 +16,6 @@
  */
 
 #include <ctype.h>
-
 #include <nc_core.h>
 #include <nc_proto.h>
 
@@ -36,20 +35,18 @@
  * Return true, if the memcache command is a storage command, otherwise
  * return false
  */
-static bool
-memcache_storage(const struct msg *r)
-{
+static bool memcache_storage(const struct msg* r) {
     switch (r->type) {
-    case MSG_REQ_MC_SET:
-    case MSG_REQ_MC_CAS:
-    case MSG_REQ_MC_ADD:
-    case MSG_REQ_MC_REPLACE:
-    case MSG_REQ_MC_APPEND:
-    case MSG_REQ_MC_PREPEND:
-        return true;
+        case MSG_REQ_MC_SET:
+        case MSG_REQ_MC_CAS:
+        case MSG_REQ_MC_ADD:
+        case MSG_REQ_MC_REPLACE:
+        case MSG_REQ_MC_APPEND:
+        case MSG_REQ_MC_PREPEND:
+            return true;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     return false;
@@ -59,9 +56,7 @@ memcache_storage(const struct msg *r)
  * Return true, if the memcache command is a cas command, otherwise
  * return false
  */
-static bool
-memcache_cas(const struct msg *r)
-{
+static bool memcache_cas(const struct msg* r) {
     if (r->type == MSG_REQ_MC_CAS) {
         return true;
     }
@@ -73,16 +68,14 @@ memcache_cas(const struct msg *r)
  * Return true, if the memcache command is a retrieval command, otherwise
  * return false
  */
-static bool
-memcache_retrieval(const struct msg *r)
-{
+static bool memcache_retrieval(const struct msg* r) {
     switch (r->type) {
-    case MSG_REQ_MC_GET:
-    case MSG_REQ_MC_GETS:
-        return true;
+        case MSG_REQ_MC_GET:
+        case MSG_REQ_MC_GETS:
+            return true;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     return false;
@@ -100,20 +93,18 @@ memcache_retrieval(const struct msg *r)
  * to allocate an array to track which key went to which server,
  * so avoid them when possible.
  */
-static bool
-memcache_should_fragment(const struct msg *r)
-{
+static bool memcache_should_fragment(const struct msg* r) {
     switch (r->type) {
-    case MSG_REQ_MC_GET:
-    case MSG_REQ_MC_GETS:
-        /*
-         * A memcache get for a single key is only sent to one server.
-         * Fragmenting it would work but be less efficient.
-         */
-        return array_n(r->keys) != 1;
+        case MSG_REQ_MC_GET:
+        case MSG_REQ_MC_GETS:
+            /*
+             * A memcache get for a single key is only sent to one server.
+             * Fragmenting it would work but be less efficient.
+             */
+            return array_n(r->keys) != 1;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     return false;
@@ -123,16 +114,14 @@ memcache_should_fragment(const struct msg *r)
  * Return true, if the memcache command is a arithmetic command, otherwise
  * return false
  */
-static bool
-memcache_arithmetic(const struct msg *r)
-{
+static bool memcache_arithmetic(const struct msg* r) {
     switch (r->type) {
-    case MSG_REQ_MC_INCR:
-    case MSG_REQ_MC_DECR:
-        return true;
+        case MSG_REQ_MC_INCR:
+        case MSG_REQ_MC_DECR:
+            return true;
 
-    default:
-        break;
+        default:
+            break;
     }
 
     return false;
@@ -142,9 +131,7 @@ memcache_arithmetic(const struct msg *r)
  * Return true, if the memcache command is a delete command, otherwise
  * return false
  */
-static bool
-memcache_delete(const struct msg *r)
-{
+static bool memcache_delete(const struct msg* r) {
     if (r->type == MSG_REQ_MC_DELETE) {
         return true;
     }
@@ -156,9 +143,7 @@ memcache_delete(const struct msg *r)
  * Return true, if the memcache command is a touch command, otherwise
  * return false
  */
-static bool
-memcache_touch(const struct msg *r)
-{
+static bool memcache_touch(const struct msg* r) {
     if (r->type == MSG_REQ_MC_TOUCH) {
         return true;
     }
@@ -166,10 +151,8 @@ memcache_touch(const struct msg *r)
     return false;
 }
 
-void
-memcache_parse_req(struct msg *r)
-{
-    struct mbuf *b;
+void memcache_parse_req(struct msg* r) {
+    struct mbuf* b;
     uint8_t *p, *m;
     uint8_t ch;
     enum {
@@ -216,513 +199,519 @@ memcache_parse_req(struct msg *r)
 
         switch (state) {
 
-        case SW_START:
-            if (ch == ' ') {
+            case SW_START:
+                if (ch == ' ') {
+                    break;
+                }
+
+                if (!islower(ch)) {
+                    goto error;
+                }
+
+                /* req_start <- p; type_start <- p */
+                r->token = p;
+                state = SW_REQ_TYPE;
+
                 break;
-            }
 
-            if (!islower(ch)) {
-                goto error;
-            }
+            case SW_REQ_TYPE:
+                if (ch == ' ' || ch == CR) {
+                    /* type_end = p - 1 */
+                    m = r->token;
+                    r->token = NULL;
+                    r->type = MSG_UNKNOWN;
+                    r->narg++;
 
-            /* req_start <- p; type_start <- p */
-            r->token = p;
-            state = SW_REQ_TYPE;
+                    switch (p - m) {
 
-            break;
+                        case 3:
+                            if (str4cmp(m, 'g', 'e', 't', ' ')) {
+                                r->type = MSG_REQ_MC_GET;
+                                break;
+                            }
 
-        case SW_REQ_TYPE:
-            if (ch == ' ' || ch == CR) {
-                /* type_end = p - 1 */
-                m = r->token;
-                r->token = NULL;
-                r->type = MSG_UNKNOWN;
-                r->narg++;
+                            if (str4cmp(m, 's', 'e', 't', ' ')) {
+                                r->type = MSG_REQ_MC_SET;
+                                break;
+                            }
 
-                switch (p - m) {
+                            if (str4cmp(m, 'a', 'd', 'd', ' ')) {
+                                r->type = MSG_REQ_MC_ADD;
+                                break;
+                            }
 
-                case 3:
-                    if (str4cmp(m, 'g', 'e', 't', ' ')) {
-                        r->type = MSG_REQ_MC_GET;
-                        break;
+                            if (str4cmp(m, 'c', 'a', 's', ' ')) {
+                                r->type = MSG_REQ_MC_CAS;
+                                break;
+                            }
+
+                            break;
+
+                        case 4:
+                            if (str4cmp(m, 'g', 'e', 't', 's')) {
+                                r->type = MSG_REQ_MC_GETS;
+                                break;
+                            }
+
+                            if (str4cmp(m, 'i', 'n', 'c', 'r')) {
+                                r->type = MSG_REQ_MC_INCR;
+                                break;
+                            }
+
+                            if (str4cmp(m, 'd', 'e', 'c', 'r')) {
+                                r->type = MSG_REQ_MC_DECR;
+                                break;
+                            }
+
+                            if (str4cmp(m, 'q', 'u', 'i', 't')) {
+                                r->type = MSG_REQ_MC_QUIT;
+                                r->quit = 1;
+                                break;
+                            }
+
+                            break;
+
+                        case 5:
+                            if (str5cmp(m, 't', 'o', 'u', 'c', 'h')) {
+                                r->type = MSG_REQ_MC_TOUCH;
+                                break;
+                            }
+
+                            break;
+
+                        case 6:
+                            if (str6cmp(m, 'a', 'p', 'p', 'e', 'n', 'd')) {
+                                r->type = MSG_REQ_MC_APPEND;
+                                break;
+                            }
+
+                            if (str6cmp(m, 'd', 'e', 'l', 'e', 't', 'e')) {
+                                r->type = MSG_REQ_MC_DELETE;
+                                break;
+                            }
+
+                            break;
+
+                        case 7:
+                            if (str7cmp(m, 'p', 'r', 'e', 'p', 'e', 'n', 'd')) {
+                                r->type = MSG_REQ_MC_PREPEND;
+                                break;
+                            }
+
+                            if (str7cmp(m, 'r', 'e', 'p', 'l', 'a', 'c', 'e')) {
+                                r->type = MSG_REQ_MC_REPLACE;
+                                break;
+                            }
+
+                            if (str7cmp(m, 'v', 'e', 'r', 's', 'i', 'o', 'n')) {
+                                r->type = MSG_REQ_MC_VERSION;
+                                if (!msg_set_placeholder_key(r)) {
+                                    goto enomem;
+                                }
+                                break;
+                            }
+
+                            break;
                     }
 
-                    if (str4cmp(m, 's', 'e', 't', ' ')) {
-                        r->type = MSG_REQ_MC_SET;
-                        break;
+                    switch (r->type) {
+                        case MSG_REQ_MC_GET:
+                        case MSG_REQ_MC_GETS:
+                        case MSG_REQ_MC_DELETE:
+                        case MSG_REQ_MC_CAS:
+                        case MSG_REQ_MC_SET:
+                        case MSG_REQ_MC_ADD:
+                        case MSG_REQ_MC_REPLACE:
+                        case MSG_REQ_MC_APPEND:
+                        case MSG_REQ_MC_PREPEND:
+                        case MSG_REQ_MC_INCR:
+                        case MSG_REQ_MC_DECR:
+                        case MSG_REQ_MC_TOUCH:
+                            if (ch == CR) {
+                                goto error;
+                            }
+                            state = SW_SPACES_BEFORE_KEY;
+                            break;
+
+                        case MSG_REQ_MC_VERSION:
+                        case MSG_REQ_MC_QUIT:
+                            p = p - 1; /* go back by 1 byte */
+                            state = SW_CRLF;
+                            break;
+
+                        case MSG_UNKNOWN:
+                            goto error;
+
+                        default:
+                            NOT_REACHED();
                     }
 
-                    if (str4cmp(m, 'a', 'd', 'd', ' ')) {
-                        r->type = MSG_REQ_MC_ADD;
-                        break;
+                } else if (!islower(ch)) {
+                    goto error;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_KEY:
+                if (ch != ' ') {
+                    p = p - 1; /* go back by 1 byte */
+                    r->token = NULL;
+                    state = SW_KEY;
+                }
+                break;
+
+            case SW_KEY:
+                if (r->token == NULL) {
+                    r->token = p;
+                }
+                if (ch == ' ' || ch == CR) {
+                    struct keypos* kpos;
+                    int keylen = p - r->token;
+                    if (keylen > MEMCACHE_MAX_KEY_LENGTH) {
+                        log_error("parsed bad req %" PRIu64 " of type %d with key "
+                                  "prefix '%.*s...' and length %d that exceeds "
+                                  "maximum key length",
+                                  r->id,
+                                  r->type,
+                                  16,
+                                  r->token,
+                                  ( int )(p - r->token));
+                        goto error;
+                    } else if (keylen == 0) {
+                        log_error("parsed bad req %" PRIu64 " of type %d with an "
+                                  "empty key",
+                                  r->id,
+                                  r->type);
+                        goto error;
                     }
 
-                    if (str4cmp(m, 'c', 'a', 's', ' ')) {
-                        r->type = MSG_REQ_MC_CAS;
-                        break;
+                    kpos = array_push(r->keys);
+                    if (kpos == NULL) {
+                        goto enomem;
+                    }
+                    kpos->start = r->token;
+                    kpos->end = p;
+
+                    r->narg++;
+                    r->token = NULL;
+
+                    /* get next state */
+                    if (memcache_storage(r)) {
+                        state = SW_SPACES_BEFORE_FLAGS;
+                    } else if (memcache_arithmetic(r) || memcache_touch(r)) {
+                        state = SW_SPACES_BEFORE_NUM;
+                    } else if (memcache_retrieval(r)) {
+                        state = SW_SPACES_BEFORE_KEYS;
+                    } else {
+                        /* delete, etc. */
+                        state = SW_RUNTO_CRLF;
                     }
 
+                    if (ch == CR) {
+                        if (memcache_storage(r) || memcache_arithmetic(r)) {
+                            goto error;
+                        }
+                        p = p - 1; /* go back by 1 byte */
+                    }
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_KEYS:
+                ASSERT(memcache_retrieval(r));
+                switch (ch) {
+                    case ' ':
+                        break;
+
+                    case CR:
+                        state = SW_ALMOST_DONE;
+                        break;
+
+                    default:
+                        r->token = NULL;
+                        p = p - 1; /* go back by 1 byte */
+                        state = SW_KEY;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_FLAGS:
+                if (ch != ' ') {
+                    if (!isdigit(ch)) {
+                        goto error;
+                    }
+                    /* flags_start <- p; flags <- ch - '0' */
+                    r->token = p;
+                    state = SW_FLAGS;
+                }
+
+                break;
+
+            case SW_FLAGS:
+                if (isdigit(ch)) {
+                    /* flags <- flags * 10 + (ch - '0') */
+                    ;
+                } else if (ch == ' ') {
+                    /* flags_end <- p - 1 */
+                    r->token = NULL;
+                    state = SW_SPACES_BEFORE_EXPIRY;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_EXPIRY:
+                if (ch != ' ') {
+                    if (!isdigit(ch)) {
+                        goto error;
+                    }
+                    /* expiry_start <- p; expiry <- ch - '0' */
+                    r->token = p;
+                    state = SW_EXPIRY;
+                }
+
+                break;
+
+            case SW_EXPIRY:
+                if (isdigit(ch)) {
+                    /* expiry <- expiry * 10 + (ch - '0') */
+                    ;
+                } else if (ch == ' ') {
+                    /* expiry_end <- p - 1 */
+                    r->token = NULL;
+                    state = SW_SPACES_BEFORE_VLEN;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_VLEN:
+                if (ch != ' ') {
+                    if (!isdigit(ch)) {
+                        goto error;
+                    }
+                    /* vlen_start <- p */
+                    r->vlen = ( uint32_t )(ch - '0');
+                    state = SW_VLEN;
+                }
+
+                break;
+
+            case SW_VLEN:
+                if (isdigit(ch)) {
+                    r->vlen = r->vlen * 10 + ( uint32_t )(ch - '0');
+                } else if (memcache_cas(r)) {
+                    if (ch != ' ') {
+                        goto error;
+                    }
+                    /* vlen_end <- p - 1 */
+                    p = p - 1; /* go back by 1 byte */
+                    r->token = NULL;
+                    state = SW_SPACES_BEFORE_CAS;
+                } else if (ch == ' ' || ch == CR) {
+                    /* vlen_end <- p - 1 */
+                    p = p - 1; /* go back by 1 byte */
+                    r->token = NULL;
+                    state = SW_RUNTO_CRLF;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_CAS:
+                if (ch != ' ') {
+                    if (!isdigit(ch)) {
+                        goto error;
+                    }
+                    /* cas_start <- p; cas <- ch - '0' */
+                    r->token = p;
+                    state = SW_CAS;
+                }
+
+                break;
+
+            case SW_CAS:
+                if (isdigit(ch)) {
+                    /* cas <- cas * 10 + (ch - '0') */
+                    ;
+                } else if (ch == ' ' || ch == CR) {
+                    /* cas_end <- p - 1 */
+                    p = p - 1; /* go back by 1 byte */
+                    r->token = NULL;
+                    state = SW_RUNTO_CRLF;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_RUNTO_VAL:
+                switch (ch) {
+                    case LF:
+                        /* val_start <- p + 1 */
+                        state = SW_VAL;
+                        break;
+
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_VAL:
+                m = p + r->vlen;
+                if (m >= b->last) {
+                    ASSERT(r->vlen >= ( uint32_t )(b->last - p));
+                    r->vlen -= ( uint32_t )(b->last - p);
+                    m = b->last - 1;
+                    p = m; /* move forward by vlen bytes */
                     break;
-
-                case 4:
-                    if (str4cmp(m, 'g', 'e', 't', 's')) {
-                        r->type = MSG_REQ_MC_GETS;
+                }
+                switch (*m) {
+                    case CR:
+                        /* val_end <- p - 1 */
+                        p = m; /* move forward by vlen bytes */
+                        state = SW_ALMOST_DONE;
                         break;
-                    }
 
-                    if (str4cmp(m, 'i', 'n', 'c', 'r')) {
-                        r->type = MSG_REQ_MC_INCR;
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_NUM:
+                if (ch != ' ') {
+                    if (!(isdigit(ch) || ch == '-')) {
+                        goto error;
+                    }
+                    /* num_start <- p; num <- ch - '0'  */
+                    r->token = p;
+                    state = SW_NUM;
+                }
+
+                break;
+
+            case SW_NUM:
+                if (isdigit(ch)) {
+                    /* num <- num * 10 + (ch - '0') */
+                    ;
+                } else if (ch == ' ' || ch == CR) {
+                    r->token = NULL;
+                    /* num_end <- p - 1 */
+                    p = p - 1; /* go back by 1 byte */
+                    state = SW_RUNTO_CRLF;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_RUNTO_CRLF:
+                switch (ch) {
+                    case ' ':
                         break;
-                    }
 
-                    if (str4cmp(m, 'd', 'e', 'c', 'r')) {
-                        r->type = MSG_REQ_MC_DECR;
+                    case 'n':
+                        if (memcache_storage(r) || memcache_arithmetic(r) || memcache_delete(r) ||
+                            memcache_touch(r)) {
+                            /* noreply_start <- p */
+                            r->token = p;
+                            state = SW_NOREPLY;
+                        } else {
+                            goto error;
+                        }
+
                         break;
-                    }
 
-                    if (str4cmp(m, 'q', 'u', 'i', 't')) {
-                        r->type = MSG_REQ_MC_QUIT;
-                        r->quit = 1;
+                    case CR:
+                        if (memcache_storage(r)) {
+                            state = SW_RUNTO_VAL;
+                        } else {
+                            state = SW_ALMOST_DONE;
+                        }
+
                         break;
-                    }
 
-                    break;
+                    default:
+                        goto error;
+                }
 
-                case 5:
-                    if (str5cmp(m, 't', 'o', 'u', 'c', 'h')) {
-                      r->type = MSG_REQ_MC_TOUCH;
-                      break;
-                    }
+                break;
 
-                    break;
+            case SW_NOREPLY:
+                switch (ch) {
+                    case ' ':
+                    case CR:
+                        m = r->token;
+                        if (((p - m) == 7) && str7cmp(m, 'n', 'o', 'r', 'e', 'p', 'l', 'y')) {
+                            ASSERT(memcache_storage(r) || memcache_arithmetic(r) ||
+                                   memcache_delete(r) || memcache_touch(r));
+                            r->token = NULL;
+                            /* noreply_end <- p - 1 */
+                            r->noreply = 1;
+                            state = SW_AFTER_NOREPLY;
+                            p = p - 1; /* go back by 1 byte */
+                        } else {
+                            goto error;
+                        }
+                }
 
-                case 6:
-                    if (str6cmp(m, 'a', 'p', 'p', 'e', 'n', 'd')) {
-                        r->type = MSG_REQ_MC_APPEND;
+                break;
+
+            case SW_AFTER_NOREPLY:
+                switch (ch) {
+                    case ' ':
                         break;
-                    }
 
-                    if (str6cmp(m, 'd', 'e', 'l', 'e', 't', 'e')) {
-                        r->type = MSG_REQ_MC_DELETE;
-                        break;
-                    }
-
-                    break;
-
-                case 7:
-                    if (str7cmp(m, 'p', 'r', 'e', 'p', 'e', 'n', 'd')) {
-                        r->type = MSG_REQ_MC_PREPEND;
-                        break;
-                    }
-
-                    if (str7cmp(m, 'r', 'e', 'p', 'l', 'a', 'c', 'e')) {
-                        r->type = MSG_REQ_MC_REPLACE;
-                        break;
-                    }
-
-                    if (str7cmp(m, 'v', 'e', 'r', 's', 'i', 'o', 'n')) {
-                        r->type = MSG_REQ_MC_VERSION;
-                        if (!msg_set_placeholder_key(r)) {
-                            goto enomem;
+                    case CR:
+                        if (memcache_storage(r)) {
+                            state = SW_RUNTO_VAL;
+                        } else {
+                            state = SW_ALMOST_DONE;
                         }
                         break;
-                    }
 
-                    break;
-                }
-
-                switch (r->type) {
-                case MSG_REQ_MC_GET:
-                case MSG_REQ_MC_GETS:
-                case MSG_REQ_MC_DELETE:
-                case MSG_REQ_MC_CAS:
-                case MSG_REQ_MC_SET:
-                case MSG_REQ_MC_ADD:
-                case MSG_REQ_MC_REPLACE:
-                case MSG_REQ_MC_APPEND:
-                case MSG_REQ_MC_PREPEND:
-                case MSG_REQ_MC_INCR:
-                case MSG_REQ_MC_DECR:
-                case MSG_REQ_MC_TOUCH:
-                    if (ch == CR) {
+                    default:
                         goto error;
-                    }
-                    state = SW_SPACES_BEFORE_KEY;
-                    break;
-
-                case MSG_REQ_MC_VERSION:
-                case MSG_REQ_MC_QUIT:
-                    p = p - 1; /* go back by 1 byte */
-                    state = SW_CRLF;
-                    break;
-
-                case MSG_UNKNOWN:
-                    goto error;
-
-                default:
-                    NOT_REACHED();
                 }
 
-            } else if (!islower(ch)) {
-                goto error;
-            }
+                break;
 
-            break;
+            case SW_CRLF:
+                switch (ch) {
+                    case ' ':
+                        break;
 
-        case SW_SPACES_BEFORE_KEY:
-            if (ch != ' ') {
-                p = p - 1; /* go back by 1 byte */
-                r->token = NULL;
-                state = SW_KEY;
-            }
-            break;
+                    case CR:
+                        state = SW_ALMOST_DONE;
+                        break;
 
-        case SW_KEY:
-            if (r->token == NULL) {
-                r->token = p;
-            }
-            if (ch == ' ' || ch == CR) {
-                struct keypos *kpos;
-                int keylen = p - r->token;
-                if (keylen > MEMCACHE_MAX_KEY_LENGTH) {
-                    log_error("parsed bad req %"PRIu64" of type %d with key "
-                              "prefix '%.*s...' and length %d that exceeds "
-                              "maximum key length", r->id, r->type, 16,
-                              r->token, (int)(p - r->token));
-                    goto error;
-                } else if (keylen == 0) {
-                    log_error("parsed bad req %"PRIu64" of type %d with an "
-                              "empty key", r->id, r->type);
-                    goto error;
-                }
-
-                kpos = array_push(r->keys);
-                if (kpos == NULL) {
-                    goto enomem;
-                }
-                kpos->start = r->token;
-                kpos->end = p;
-
-                r->narg++;
-                r->token = NULL;
-
-                /* get next state */
-                if (memcache_storage(r)) {
-                    state = SW_SPACES_BEFORE_FLAGS;
-                } else if (memcache_arithmetic(r) || memcache_touch(r) ) {
-                    state = SW_SPACES_BEFORE_NUM;
-                } else if (memcache_retrieval(r)) {
-                    state = SW_SPACES_BEFORE_KEYS;
-                } else {
-                    /* delete, etc. */
-                    state = SW_RUNTO_CRLF;
-                }
-
-                if (ch == CR) {
-                    if (memcache_storage(r) || memcache_arithmetic(r)) {
+                    default:
                         goto error;
-                    }
-                    p = p - 1; /* go back by 1 byte */
                 }
-            }
 
-            break;
-
-        case SW_SPACES_BEFORE_KEYS:
-            ASSERT(memcache_retrieval(r));
-            switch (ch) {
-            case ' ':
                 break;
 
-            case CR:
-                state = SW_ALMOST_DONE;
+            case SW_ALMOST_DONE:
+                switch (ch) {
+                    case LF:
+                        /* req_end <- p */
+                        goto done;
+
+                    default:
+                        goto error;
+                }
+
                 break;
 
+            case SW_SENTINEL:
             default:
-                r->token = NULL;
-                p = p - 1; /* go back by 1 byte */
-                state = SW_KEY;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_FLAGS:
-            if (ch != ' ') {
-                if (!isdigit(ch)) {
-                    goto error;
-                }
-                /* flags_start <- p; flags <- ch - '0' */
-                r->token = p;
-                state = SW_FLAGS;
-            }
-
-            break;
-
-        case SW_FLAGS:
-            if (isdigit(ch)) {
-                /* flags <- flags * 10 + (ch - '0') */
-                ;
-            } else if (ch == ' ') {
-                /* flags_end <- p - 1 */
-                r->token = NULL;
-                state = SW_SPACES_BEFORE_EXPIRY;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_EXPIRY:
-            if (ch != ' ') {
-                if (!isdigit(ch)) {
-                    goto error;
-                }
-                /* expiry_start <- p; expiry <- ch - '0' */
-                r->token = p;
-                state = SW_EXPIRY;
-            }
-
-            break;
-
-        case SW_EXPIRY:
-            if (isdigit(ch)) {
-                /* expiry <- expiry * 10 + (ch - '0') */
-                ;
-            } else if (ch == ' ') {
-                /* expiry_end <- p - 1 */
-                r->token = NULL;
-                state = SW_SPACES_BEFORE_VLEN;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_VLEN:
-            if (ch != ' ') {
-                if (!isdigit(ch)) {
-                    goto error;
-                }
-                /* vlen_start <- p */
-                r->vlen = (uint32_t)(ch - '0');
-                state = SW_VLEN;
-            }
-
-            break;
-
-        case SW_VLEN:
-            if (isdigit(ch)) {
-                r->vlen = r->vlen * 10 + (uint32_t)(ch - '0');
-            } else if (memcache_cas(r)) {
-                if (ch != ' ') {
-                    goto error;
-                }
-                /* vlen_end <- p - 1 */
-                p = p - 1; /* go back by 1 byte */
-                r->token = NULL;
-                state = SW_SPACES_BEFORE_CAS;
-            } else if (ch == ' ' || ch == CR) {
-                /* vlen_end <- p - 1 */
-                p = p - 1; /* go back by 1 byte */
-                r->token = NULL;
-                state = SW_RUNTO_CRLF;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_CAS:
-            if (ch != ' ') {
-                if (!isdigit(ch)) {
-                    goto error;
-                }
-                /* cas_start <- p; cas <- ch - '0' */
-                r->token = p;
-                state = SW_CAS;
-            }
-
-            break;
-
-        case SW_CAS:
-            if (isdigit(ch)) {
-                /* cas <- cas * 10 + (ch - '0') */
-                ;
-            } else if (ch == ' ' || ch == CR) {
-                /* cas_end <- p - 1 */
-                p = p - 1; /* go back by 1 byte */
-                r->token = NULL;
-                state = SW_RUNTO_CRLF;
-            } else {
-                goto error;
-            }
-
-            break;
-
-
-        case SW_RUNTO_VAL:
-            switch (ch) {
-            case LF:
-                /* val_start <- p + 1 */
-                state = SW_VAL;
+                NOT_REACHED();
                 break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_VAL:
-            m = p + r->vlen;
-            if (m >= b->last) {
-                ASSERT(r->vlen >= (uint32_t)(b->last - p));
-                r->vlen -= (uint32_t)(b->last - p);
-                m = b->last - 1;
-                p = m; /* move forward by vlen bytes */
-                break;
-            }
-            switch (*m) {
-            case CR:
-                /* val_end <- p - 1 */
-                p = m; /* move forward by vlen bytes */
-                state = SW_ALMOST_DONE;
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_NUM:
-            if (ch != ' ') {
-                if (!(isdigit(ch) || ch == '-')) {
-                    goto error;
-                }
-                /* num_start <- p; num <- ch - '0'  */
-                r->token = p;
-                state = SW_NUM;
-            }
-
-            break;
-
-        case SW_NUM:
-            if (isdigit(ch)) {
-                /* num <- num * 10 + (ch - '0') */
-                ;
-            } else if (ch == ' ' || ch == CR) {
-                r->token = NULL;
-                /* num_end <- p - 1 */
-                p = p - 1; /* go back by 1 byte */
-                state = SW_RUNTO_CRLF;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_RUNTO_CRLF:
-            switch (ch) {
-            case ' ':
-                break;
-
-            case 'n':
-                if (memcache_storage(r) || memcache_arithmetic(r) || memcache_delete(r) || memcache_touch(r)) {
-                    /* noreply_start <- p */
-                    r->token = p;
-                    state = SW_NOREPLY;
-                } else {
-                    goto error;
-                }
-
-                break;
-
-            case CR:
-                if (memcache_storage(r)) {
-                    state = SW_RUNTO_VAL;
-                } else {
-                    state = SW_ALMOST_DONE;
-                }
-
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_NOREPLY:
-            switch (ch) {
-            case ' ':
-            case CR:
-                m = r->token;
-                if (((p - m) == 7) && str7cmp(m, 'n', 'o', 'r', 'e', 'p', 'l', 'y')) {
-                    ASSERT(memcache_storage(r) || memcache_arithmetic(r) || memcache_delete(r) || memcache_touch(r));
-                    r->token = NULL;
-                    /* noreply_end <- p - 1 */
-                    r->noreply = 1;
-                    state = SW_AFTER_NOREPLY;
-                    p = p - 1; /* go back by 1 byte */
-                } else {
-                    goto error;
-                }
-            }
-
-            break;
-
-        case SW_AFTER_NOREPLY:
-            switch (ch) {
-            case ' ':
-                break;
-
-            case CR:
-                if (memcache_storage(r)) {
-                    state = SW_RUNTO_VAL;
-                } else {
-                    state = SW_ALMOST_DONE;
-                }
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_CRLF:
-            switch (ch) {
-            case ' ':
-                break;
-
-            case CR:
-                state = SW_ALMOST_DONE;
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_ALMOST_DONE:
-            switch (ch) {
-            case LF:
-                /* req_end <- p */
-                goto done;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_SENTINEL:
-        default:
-            NOT_REACHED();
-            break;
-
         }
     }
 
@@ -751,9 +740,17 @@ memcache_parse_req(struct msg *r)
         r->result = MSG_PARSE_AGAIN;
     }
 
-    log_hexdump(LOG_VERB, b->pos, mbuf_length(b), "parsed req %"PRIu64" res %d "
-                "type %d state %d rpos %d of %d", r->id, r->result, r->type,
-                r->state, (int)(r->pos - b->pos), (int)(b->last - b->pos));
+    log_hexdump(LOG_VERB,
+                b->pos,
+                mbuf_length(b),
+                "parsed req %" PRIu64 " res %d "
+                "type %d state %d rpos %d of %d",
+                r->id,
+                r->result,
+                r->type,
+                r->state,
+                ( int )(r->pos - b->pos),
+                ( int )(b->last - b->pos));
     return;
 
 done:
@@ -763,17 +760,32 @@ done:
     r->state = SW_START;
     r->result = MSG_PARSE_OK;
 
-    log_hexdump(LOG_VERB, b->pos, mbuf_length(b), "parsed req %"PRIu64" res %d "
-                "type %d state %d rpos %d of %d", r->id, r->result, r->type,
-                r->state, (int)(r->pos - b->pos), (int)(b->last - b->pos));
+    log_hexdump(LOG_VERB,
+                b->pos,
+                mbuf_length(b),
+                "parsed req %" PRIu64 " res %d "
+                "type %d state %d rpos %d of %d",
+                r->id,
+                r->result,
+                r->type,
+                r->state,
+                ( int )(r->pos - b->pos),
+                ( int )(b->last - b->pos));
     return;
 
 enomem:
     r->result = MSG_PARSE_ERROR;
     r->state = state;
 
-    log_hexdump(LOG_INFO, b->pos, mbuf_length(b), "out of memory on parse req %"PRIu64" "
-                "res %d type %d state %d", r->id, r->result, r->type, r->state);
+    log_hexdump(LOG_INFO,
+                b->pos,
+                mbuf_length(b),
+                "out of memory on parse req %" PRIu64 " "
+                "res %d type %d state %d",
+                r->id,
+                r->result,
+                r->type,
+                r->state);
 
     return;
 
@@ -782,15 +794,19 @@ error:
     r->state = state;
     errno = EINVAL;
 
-    log_hexdump(LOG_INFO, b->pos, mbuf_length(b), "parsed bad req %"PRIu64" "
-                "res %d type %d state %d", r->id, r->result, r->type,
+    log_hexdump(LOG_INFO,
+                b->pos,
+                mbuf_length(b),
+                "parsed bad req %" PRIu64 " "
+                "res %d type %d state %d",
+                r->id,
+                r->result,
+                r->type,
                 r->state);
 }
 
-void
-memcache_parse_rsp(struct msg *r)
-{
-    struct mbuf *b;
+void memcache_parse_rsp(struct msg* r) {
+    struct mbuf* b;
     uint8_t *p, *m;
     uint8_t ch;
     enum {
@@ -799,17 +815,17 @@ memcache_parse_rsp(struct msg *r)
         SW_RSP_STR,
         SW_SPACES_BEFORE_KEY,
         SW_KEY,
-        SW_SPACES_BEFORE_FLAGS,     /* 5 */
+        SW_SPACES_BEFORE_FLAGS, /* 5 */
         SW_FLAGS,
         SW_SPACES_BEFORE_VLEN,
         SW_VLEN,
         SW_RUNTO_VAL,
-        SW_VAL,                     /* 10 */
+        SW_VAL, /* 10 */
         SW_VAL_LF,
         SW_END,
         SW_RUNTO_CRLF,
         SW_CRLF,
-        SW_ALMOST_DONE,             /* 15 */
+        SW_ALMOST_DONE, /* 15 */
         SW_SENTINEL
     } state;
 
@@ -830,375 +846,398 @@ memcache_parse_rsp(struct msg *r)
         ch = *p;
 
         switch (state) {
-        case SW_START:
-            if (isdigit(ch)) {
-                state = SW_RSP_NUM;
-            } else {
-                state = SW_RSP_STR;
-            }
-            p = p - 1; /* go back by 1 byte */
-
-            break;
-
-        case SW_RSP_NUM:
-            if (r->token == NULL) {
-                /* rsp_start <- p; type_start <- p */
-                r->token = p;
-            }
-
-            if (isdigit(ch)) {
-                /* num <- num * 10 + (ch - '0') */
-                ;
-            } else if (ch == ' ' || ch == CR) {
-                /* type_end <- p - 1 */
-                r->token = NULL;
-                r->type = MSG_RSP_MC_NUM;
-                p = p - 1; /* go back by 1 byte */
-                state = SW_CRLF;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_RSP_STR:
-            if (r->token == NULL) {
-                /* rsp_start <- p; type_start <- p */
-                r->token = p;
-            }
-
-            if (ch == ' ' || ch == CR) {
-                /* type_end <- p - 1 */
-                m = r->token;
-                /* r->token = NULL; */
-                r->type = MSG_UNKNOWN;
-
-                switch (p - m) {
-                case 3:
-                    if (str4cmp(m, 'E', 'N', 'D', '\r')) {
-                        r->type = MSG_RSP_MC_END;
-                        /* end_start <- m; end_end <- p - 1 */
-                        r->end = m;
-                        break;
-                    }
-
-                    break;
-
-                case 5:
-                    if (str5cmp(m, 'V', 'A', 'L', 'U', 'E')) {
-                        /*
-                         * Encompasses responses for 'get', 'gets' and
-                         * 'cas' command.
-                         */
-                        r->type = MSG_RSP_MC_VALUE;
-                        break;
-                    }
-
-                    if (str5cmp(m, 'E', 'R', 'R', 'O', 'R')) {
-                        r->type = MSG_RSP_MC_ERROR;
-                        break;
-                    }
-
-                    break;
-
-                case 6:
-                    if (str6cmp(m, 'S', 'T', 'O', 'R', 'E', 'D')) {
-                        r->type = MSG_RSP_MC_STORED;
-                        break;
-                    }
-
-                    if (str6cmp(m, 'E', 'X', 'I', 'S', 'T', 'S')) {
-                        r->type = MSG_RSP_MC_EXISTS;
-                        break;
-                    }
-
-                    break;
-
-                case 7:
-                    if (str7cmp(m, 'D', 'E', 'L', 'E', 'T', 'E', 'D')) {
-                        r->type = MSG_RSP_MC_DELETED;
-                        break;
-                    }
-
-                    if (str7cmp(m, 'T', 'O', 'U', 'C', 'H', 'E', 'D')) {
-                        r->type = MSG_RSP_MC_TOUCHED;
-                        break;
-                    }
-
-                    if (str7cmp(m, 'V', 'E', 'R', 'S', 'I', 'O', 'N')) {
-                        r->type = MSG_RSP_MC_VERSION;
-                        break;
-                    }
-
-                    break;
-
-                case 9:
-                    if (str9cmp(m, 'N', 'O', 'T', '_', 'F', 'O', 'U', 'N', 'D')) {
-                        r->type = MSG_RSP_MC_NOT_FOUND;
-                        break;
-                    }
-
-                    break;
-
-                case 10:
-                    if (str10cmp(m, 'N', 'O', 'T', '_', 'S', 'T', 'O', 'R', 'E', 'D')) {
-                        r->type = MSG_RSP_MC_NOT_STORED;
-                        break;
-                    }
-
-                    break;
-
-                case 12:
-                    if (str12cmp(m, 'C', 'L', 'I', 'E', 'N', 'T', '_', 'E', 'R', 'R', 'O', 'R')) {
-                        r->type = MSG_RSP_MC_CLIENT_ERROR;
-                        break;
-                    }
-
-                    if (str12cmp(m, 'S', 'E', 'R', 'V', 'E', 'R', '_', 'E', 'R', 'R', 'O', 'R')) {
-                        r->type = MSG_RSP_MC_SERVER_ERROR;
-                        break;
-                    }
-
-                    break;
-                }
-
-                switch (r->type) {
-                case MSG_UNKNOWN:
-                    goto error;
-
-                case MSG_RSP_MC_STORED:
-                case MSG_RSP_MC_NOT_STORED:
-                case MSG_RSP_MC_EXISTS:
-                case MSG_RSP_MC_NOT_FOUND:
-                case MSG_RSP_MC_DELETED:
-                case MSG_RSP_MC_TOUCHED:
-                    state = SW_CRLF;
-                    break;
-
-                case MSG_RSP_MC_END:
-                    state = SW_CRLF;
-                    break;
-
-                case MSG_RSP_MC_VALUE:
-                    state = SW_SPACES_BEFORE_KEY;
-                    break;
-
-                case MSG_RSP_MC_ERROR:
-                    state = SW_CRLF;
-                    break;
-
-                case MSG_RSP_MC_CLIENT_ERROR:
-                case MSG_RSP_MC_SERVER_ERROR:
-                case MSG_RSP_MC_VERSION:
-                    state = SW_RUNTO_CRLF;
-                    break;
-
-                default:
-                    NOT_REACHED();
-                }
-
-                p = p - 1; /* go back by 1 byte */
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_KEY:
-            if (ch != ' ') {
-                state = SW_KEY;
-                p = p - 1; /* go back by 1 byte */
-            }
-
-            break;
-
-        case SW_KEY:
-            if (ch == ' ') {
-                /* r->token = NULL; */
-                state = SW_SPACES_BEFORE_FLAGS;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_FLAGS:
-            if (ch != ' ') {
-                if (!isdigit(ch)) {
-                    goto error;
-                }
-                state = SW_FLAGS;
-                p = p - 1; /* go back by 1 byte */
-            }
-
-            break;
-
-        case SW_FLAGS:
-            if (r->token == NULL) {
-                /* flags_start <- p */
-                /* r->token = p; */
-            }
-
-            if (isdigit(ch)) {
-                /* flags <- flags * 10 + (ch - '0') */
-                ;
-            } else if (ch == ' ') {
-                /* flags_end <- p - 1 */
-                /* r->token = NULL; */
-                state = SW_SPACES_BEFORE_VLEN;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_SPACES_BEFORE_VLEN:
-            if (ch != ' ') {
-                if (!isdigit(ch)) {
-                    goto error;
-                }
-                p = p - 1; /* go back by 1 byte */
-                state = SW_VLEN;
-                r->vlen = 0;
-            }
-
-            break;
-
-        case SW_VLEN:
-            if (isdigit(ch)) {
-                r->vlen = r->vlen * 10 + (uint32_t)(ch - '0');
-            } else if (ch == ' ' || ch == CR) {
-                /* vlen_end <- p - 1 */
-                p = p - 1; /* go back by 1 byte */
-                /* r->token = NULL; */
-                state = SW_RUNTO_CRLF;
-            } else {
-                goto error;
-            }
-
-            break;
-
-        case SW_RUNTO_VAL:
-            switch (ch) {
-            case LF:
-                /* val_start <- p + 1 */
-                state = SW_VAL;
-                r->token = NULL;
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_VAL:
-            m = p + r->vlen;
-            if (m >= b->last) {
-                ASSERT(r->vlen >= (uint32_t)(b->last - p));
-                r->vlen -= (uint32_t)(b->last - p);
-                m = b->last - 1;
-                p = m; /* move forward by vlen bytes */
-                break;
-            }
-            switch (*m) {
-            case CR:
-                /* val_end <- p - 1 */
-                p = m; /* move forward by vlen bytes */
-                state = SW_VAL_LF;
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_VAL_LF:
-            switch (ch) {
-            case LF:
-                /* state = SW_END; */
-                state = SW_RSP_STR;
-                break;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_END:
-            if (r->token == NULL) {
-                if (ch != 'E') {
-                    goto error;
-                }
-                /* end_start <- p */
-                r->token = p;
-            } else if (ch == CR) {
-                /* end_end <- p */
-                m = r->token;
-                r->token = NULL;
-
-                switch (p - m) {
-                case 3:
-                    if (str4cmp(m, 'E', 'N', 'D', '\r')) {
-                        r->end = m;
-                        state = SW_ALMOST_DONE;
-                    }
-                    break;
-
-                default:
-                    goto error;
-                }
-            }
-
-            break;
-
-        case SW_RUNTO_CRLF:
-            switch (ch) {
-            case CR:
-                if (r->type == MSG_RSP_MC_VALUE) {
-                    state = SW_RUNTO_VAL;
+            case SW_START:
+                if (isdigit(ch)) {
+                    state = SW_RSP_NUM;
                 } else {
-                    state = SW_ALMOST_DONE;
+                    state = SW_RSP_STR;
+                }
+                p = p - 1; /* go back by 1 byte */
+
+                break;
+
+            case SW_RSP_NUM:
+                if (r->token == NULL) {
+                    /* rsp_start <- p; type_start <- p */
+                    r->token = p;
+                }
+
+                if (isdigit(ch)) {
+                    /* num <- num * 10 + (ch - '0') */
+                    ;
+                } else if (ch == ' ' || ch == CR) {
+                    /* type_end <- p - 1 */
+                    r->token = NULL;
+                    r->type = MSG_RSP_MC_NUM;
+                    p = p - 1; /* go back by 1 byte */
+                    state = SW_CRLF;
+                } else {
+                    goto error;
                 }
 
                 break;
 
-            default:
+            case SW_RSP_STR:
+                if (r->token == NULL) {
+                    /* rsp_start <- p; type_start <- p */
+                    r->token = p;
+                }
+
+                if (ch == ' ' || ch == CR) {
+                    /* type_end <- p - 1 */
+                    m = r->token;
+                    /* r->token = NULL; */
+                    r->type = MSG_UNKNOWN;
+
+                    switch (p - m) {
+                        case 3:
+                            if (str4cmp(m, 'E', 'N', 'D', '\r')) {
+                                r->type = MSG_RSP_MC_END;
+                                /* end_start <- m; end_end <- p - 1 */
+                                r->end = m;
+                                break;
+                            }
+
+                            break;
+
+                        case 5:
+                            if (str5cmp(m, 'V', 'A', 'L', 'U', 'E')) {
+                                /*
+                                 * Encompasses responses for 'get', 'gets' and
+                                 * 'cas' command.
+                                 */
+                                r->type = MSG_RSP_MC_VALUE;
+                                break;
+                            }
+
+                            if (str5cmp(m, 'E', 'R', 'R', 'O', 'R')) {
+                                r->type = MSG_RSP_MC_ERROR;
+                                break;
+                            }
+
+                            break;
+
+                        case 6:
+                            if (str6cmp(m, 'S', 'T', 'O', 'R', 'E', 'D')) {
+                                r->type = MSG_RSP_MC_STORED;
+                                break;
+                            }
+
+                            if (str6cmp(m, 'E', 'X', 'I', 'S', 'T', 'S')) {
+                                r->type = MSG_RSP_MC_EXISTS;
+                                break;
+                            }
+
+                            break;
+
+                        case 7:
+                            if (str7cmp(m, 'D', 'E', 'L', 'E', 'T', 'E', 'D')) {
+                                r->type = MSG_RSP_MC_DELETED;
+                                break;
+                            }
+
+                            if (str7cmp(m, 'T', 'O', 'U', 'C', 'H', 'E', 'D')) {
+                                r->type = MSG_RSP_MC_TOUCHED;
+                                break;
+                            }
+
+                            if (str7cmp(m, 'V', 'E', 'R', 'S', 'I', 'O', 'N')) {
+                                r->type = MSG_RSP_MC_VERSION;
+                                break;
+                            }
+
+                            break;
+
+                        case 9:
+                            if (str9cmp(m, 'N', 'O', 'T', '_', 'F', 'O', 'U', 'N', 'D')) {
+                                r->type = MSG_RSP_MC_NOT_FOUND;
+                                break;
+                            }
+
+                            break;
+
+                        case 10:
+                            if (str10cmp(m, 'N', 'O', 'T', '_', 'S', 'T', 'O', 'R', 'E', 'D')) {
+                                r->type = MSG_RSP_MC_NOT_STORED;
+                                break;
+                            }
+
+                            break;
+
+                        case 12:
+                            if (str12cmp(m,
+                                         'C',
+                                         'L',
+                                         'I',
+                                         'E',
+                                         'N',
+                                         'T',
+                                         '_',
+                                         'E',
+                                         'R',
+                                         'R',
+                                         'O',
+                                         'R')) {
+                                r->type = MSG_RSP_MC_CLIENT_ERROR;
+                                break;
+                            }
+
+                            if (str12cmp(m,
+                                         'S',
+                                         'E',
+                                         'R',
+                                         'V',
+                                         'E',
+                                         'R',
+                                         '_',
+                                         'E',
+                                         'R',
+                                         'R',
+                                         'O',
+                                         'R')) {
+                                r->type = MSG_RSP_MC_SERVER_ERROR;
+                                break;
+                            }
+
+                            break;
+                    }
+
+                    switch (r->type) {
+                        case MSG_UNKNOWN:
+                            goto error;
+
+                        case MSG_RSP_MC_STORED:
+                        case MSG_RSP_MC_NOT_STORED:
+                        case MSG_RSP_MC_EXISTS:
+                        case MSG_RSP_MC_NOT_FOUND:
+                        case MSG_RSP_MC_DELETED:
+                        case MSG_RSP_MC_TOUCHED:
+                            state = SW_CRLF;
+                            break;
+
+                        case MSG_RSP_MC_END:
+                            state = SW_CRLF;
+                            break;
+
+                        case MSG_RSP_MC_VALUE:
+                            state = SW_SPACES_BEFORE_KEY;
+                            break;
+
+                        case MSG_RSP_MC_ERROR:
+                            state = SW_CRLF;
+                            break;
+
+                        case MSG_RSP_MC_CLIENT_ERROR:
+                        case MSG_RSP_MC_SERVER_ERROR:
+                        case MSG_RSP_MC_VERSION:
+                            state = SW_RUNTO_CRLF;
+                            break;
+
+                        default:
+                            NOT_REACHED();
+                    }
+
+                    p = p - 1; /* go back by 1 byte */
+                }
+
                 break;
-            }
 
-            break;
+            case SW_SPACES_BEFORE_KEY:
+                if (ch != ' ') {
+                    state = SW_KEY;
+                    p = p - 1; /* go back by 1 byte */
+                }
 
-        case SW_CRLF:
-            switch (ch) {
-            case ' ':
                 break;
 
-            case CR:
-                state = SW_ALMOST_DONE;
+            case SW_KEY:
+                if (ch == ' ') {
+                    /* r->token = NULL; */
+                    state = SW_SPACES_BEFORE_FLAGS;
+                }
+
                 break;
 
+            case SW_SPACES_BEFORE_FLAGS:
+                if (ch != ' ') {
+                    if (!isdigit(ch)) {
+                        goto error;
+                    }
+                    state = SW_FLAGS;
+                    p = p - 1; /* go back by 1 byte */
+                }
+
+                break;
+
+            case SW_FLAGS:
+                if (r->token == NULL) {
+                    /* flags_start <- p */
+                    /* r->token = p; */
+                }
+
+                if (isdigit(ch)) {
+                    /* flags <- flags * 10 + (ch - '0') */
+                    ;
+                } else if (ch == ' ') {
+                    /* flags_end <- p - 1 */
+                    /* r->token = NULL; */
+                    state = SW_SPACES_BEFORE_VLEN;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_SPACES_BEFORE_VLEN:
+                if (ch != ' ') {
+                    if (!isdigit(ch)) {
+                        goto error;
+                    }
+                    p = p - 1; /* go back by 1 byte */
+                    state = SW_VLEN;
+                    r->vlen = 0;
+                }
+
+                break;
+
+            case SW_VLEN:
+                if (isdigit(ch)) {
+                    r->vlen = r->vlen * 10 + ( uint32_t )(ch - '0');
+                } else if (ch == ' ' || ch == CR) {
+                    /* vlen_end <- p - 1 */
+                    p = p - 1; /* go back by 1 byte */
+                    /* r->token = NULL; */
+                    state = SW_RUNTO_CRLF;
+                } else {
+                    goto error;
+                }
+
+                break;
+
+            case SW_RUNTO_VAL:
+                switch (ch) {
+                    case LF:
+                        /* val_start <- p + 1 */
+                        state = SW_VAL;
+                        r->token = NULL;
+                        break;
+
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_VAL:
+                m = p + r->vlen;
+                if (m >= b->last) {
+                    ASSERT(r->vlen >= ( uint32_t )(b->last - p));
+                    r->vlen -= ( uint32_t )(b->last - p);
+                    m = b->last - 1;
+                    p = m; /* move forward by vlen bytes */
+                    break;
+                }
+                switch (*m) {
+                    case CR:
+                        /* val_end <- p - 1 */
+                        p = m; /* move forward by vlen bytes */
+                        state = SW_VAL_LF;
+                        break;
+
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_VAL_LF:
+                switch (ch) {
+                    case LF:
+                        /* state = SW_END; */
+                        state = SW_RSP_STR;
+                        break;
+
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_END:
+                if (r->token == NULL) {
+                    if (ch != 'E') {
+                        goto error;
+                    }
+                    /* end_start <- p */
+                    r->token = p;
+                } else if (ch == CR) {
+                    /* end_end <- p */
+                    m = r->token;
+                    r->token = NULL;
+
+                    switch (p - m) {
+                        case 3:
+                            if (str4cmp(m, 'E', 'N', 'D', '\r')) {
+                                r->end = m;
+                                state = SW_ALMOST_DONE;
+                            }
+                            break;
+
+                        default:
+                            goto error;
+                    }
+                }
+
+                break;
+
+            case SW_RUNTO_CRLF:
+                switch (ch) {
+                    case CR:
+                        if (r->type == MSG_RSP_MC_VALUE) {
+                            state = SW_RUNTO_VAL;
+                        } else {
+                            state = SW_ALMOST_DONE;
+                        }
+
+                        break;
+
+                    default:
+                        break;
+                }
+
+                break;
+
+            case SW_CRLF:
+                switch (ch) {
+                    case ' ':
+                        break;
+
+                    case CR:
+                        state = SW_ALMOST_DONE;
+                        break;
+
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_ALMOST_DONE:
+                switch (ch) {
+                    case LF:
+                        /* rsp_end <- p */
+                        goto done;
+
+                    default:
+                        goto error;
+                }
+
+                break;
+
+            case SW_SENTINEL:
             default:
-                goto error;
-            }
-
-            break;
-
-        case SW_ALMOST_DONE:
-            switch (ch) {
-            case LF:
-                /* rsp_end <- p */
-                goto done;
-
-            default:
-                goto error;
-            }
-
-            break;
-
-        case SW_SENTINEL:
-        default:
-            NOT_REACHED();
-            break;
-
+                NOT_REACHED();
+                break;
         }
     }
 
@@ -1217,9 +1256,17 @@ memcache_parse_rsp(struct msg *r)
         r->result = MSG_PARSE_AGAIN;
     }
 
-    log_hexdump(LOG_VERB, b->pos, mbuf_length(b), "parsed rsp %"PRIu64" res %d "
-                "type %d state %d rpos %d of %d", r->id, r->result, r->type,
-                r->state, (int)(r->pos - b->pos), (int)(b->last - b->pos));
+    log_hexdump(LOG_VERB,
+                b->pos,
+                mbuf_length(b),
+                "parsed rsp %" PRIu64 " res %d "
+                "type %d state %d rpos %d of %d",
+                r->id,
+                r->result,
+                r->type,
+                r->state,
+                ( int )(r->pos - b->pos),
+                ( int )(b->last - b->pos));
     return;
 
 done:
@@ -1230,9 +1277,17 @@ done:
     r->token = NULL;
     r->result = MSG_PARSE_OK;
 
-    log_hexdump(LOG_VERB, b->pos, mbuf_length(b), "parsed rsp %"PRIu64" res %d "
-                "type %d state %d rpos %d of %d", r->id, r->result, r->type,
-                r->state, (int)(r->pos - b->pos), (int)(b->last - b->pos));
+    log_hexdump(LOG_VERB,
+                b->pos,
+                mbuf_length(b),
+                "parsed rsp %" PRIu64 " res %d "
+                "type %d state %d rpos %d of %d",
+                r->id,
+                r->result,
+                r->type,
+                r->state,
+                ( int )(r->pos - b->pos),
+                ( int )(b->last - b->pos));
     return;
 
 error:
@@ -1240,22 +1295,24 @@ error:
     r->state = state;
     errno = EINVAL;
 
-    log_hexdump(LOG_INFO, b->pos, mbuf_length(b), "parsed bad rsp %"PRIu64" "
-                "res %d type %d state %d", r->id, r->result, r->type,
+    log_hexdump(LOG_INFO,
+                b->pos,
+                mbuf_length(b),
+                "parsed bad rsp %" PRIu64 " "
+                "res %d type %d state %d",
+                r->id,
+                r->result,
+                r->type,
                 r->state);
 }
 
-bool
-memcache_failure(const struct msg *r)
-{
+bool memcache_failure(const struct msg* r) {
     return false;
 }
 
-static rstatus_t
-memcache_append_key(struct msg *r, const uint8_t *key, uint32_t keylen)
-{
-    struct mbuf *mbuf;
-    struct keypos *kpos;
+static rstatus_t memcache_append_key(struct msg* r, const uint8_t* key, uint32_t keylen) {
+    struct mbuf* mbuf;
+    struct keypos* kpos;
 
     mbuf = msg_ensure_mbuf(r, keylen + 2);
     if (mbuf == NULL) {
@@ -1272,7 +1329,7 @@ memcache_append_key(struct msg *r, const uint8_t *key, uint32_t keylen)
     mbuf_copy(mbuf, key, keylen);
     r->mlen += keylen;
 
-    mbuf_copy(mbuf, (const uint8_t *)" ", 1);
+    mbuf_copy(mbuf, ( const uint8_t* )" ", 1);
     r->mlen += 1;
     return NC_OK;
 }
@@ -1280,13 +1337,12 @@ memcache_append_key(struct msg *r, const uint8_t *key, uint32_t keylen)
 /*
  * read the comment in proto/nc_redis.c
  */
-static rstatus_t
-memcache_fragment_retrieval(struct msg *r, uint32_t nserver,
-                            struct msg_tqh *frag_msgq,
-                            uint32_t key_step)
-{
-    struct mbuf *mbuf;
-    struct msg **sub_msgs;
+static rstatus_t memcache_fragment_retrieval(struct msg* r,
+                                             uint32_t nserver,
+                                             struct msg_tqh* frag_msgq,
+                                             uint32_t key_step) {
+    struct mbuf* mbuf;
+    struct msg** sub_msgs;
     uint32_t i;
     rstatus_t status;
 
@@ -1311,24 +1367,25 @@ memcache_fragment_retrieval(struct msg *r, uint32_t nserver,
      * This is always true because we have capped our MBUF_MIN_SIZE at 512 and
      * whenever we have multiple messages, we copy the tail message into a new mbuf
      */
-    for (; *(mbuf->pos) != ' ';) {          /* eat get/gets  */
+    for (; *(mbuf->pos) != ' ';) { /* eat get/gets  */
         mbuf->pos++;
     }
     mbuf->pos++;
 
-    r->frag_id = msg_gen_frag_id();
+    struct msglist* msg_list = r->owner->server_pool(r->owner)->ctx->msg_list;
+    r->frag_id = msg_gen_frag_id(msg_list);
     r->nfrag = 0;
     r->frag_owner = r;
 
     /* Build up the key1 key2 ... to be sent to a given server at index idx */
-    for (i = 0; i < array_n(r->keys); i++) {        /* for each  key */
-        struct msg *sub_msg;
-        struct keypos *kpos = array_get(r->keys, i);
+    for (i = 0; i < array_n(r->keys); i++) { /* for each  key */
+        struct msg* sub_msg;
+        struct keypos* kpos = array_get(r->keys, i);
         uint32_t idx = msg_backend_idx(r, kpos->start, kpos->end - kpos->start);
         ASSERT(idx < nserver);
 
         if (sub_msgs[idx] == NULL) {
-            sub_msgs[idx] = msg_get(r->owner, r->request, r->redis);
+            sub_msgs[idx] = msg_get(msg_list, r->owner, r->request, r->redis);
             if (sub_msgs[idx] == NULL) {
                 nc_free(sub_msgs);
                 return NC_ENOMEM;
@@ -1348,16 +1405,16 @@ memcache_fragment_retrieval(struct msg *r, uint32_t nserver,
      * to the corresponding server(s)
      */
     for (i = 0; i < nserver; i++) {
-        struct msg *sub_msg = sub_msgs[i];
+        struct msg* sub_msg = sub_msgs[i];
         if (sub_msg == NULL) {
             continue;
         }
 
         /* prepend get/gets */
         if (r->type == MSG_REQ_MC_GET) {
-            status = msg_prepend(sub_msg, (const uint8_t *)"get ", 4);
+            status = msg_prepend(sub_msg, ( const uint8_t* )"get ", 4);
         } else if (r->type == MSG_REQ_MC_GETS) {
-            status = msg_prepend(sub_msg, (const uint8_t *)"gets ", 5);
+            status = msg_prepend(sub_msg, ( const uint8_t* )"gets ", 5);
         }
         if (status != NC_OK) {
             nc_free(sub_msgs);
@@ -1365,7 +1422,7 @@ memcache_fragment_retrieval(struct msg *r, uint32_t nserver,
         }
 
         /* append \r\n */
-        status = msg_append(sub_msg, (const uint8_t *)CRLF, CRLF_LEN);
+        status = msg_append(sub_msg, ( const uint8_t* )CRLF, CRLF_LEN);
         if (status != NC_OK) {
             nc_free(sub_msgs);
             return status;
@@ -1383,9 +1440,7 @@ memcache_fragment_retrieval(struct msg *r, uint32_t nserver,
     return NC_OK;
 }
 
-rstatus_t
-memcache_fragment(struct msg *r, uint32_t nserver, struct msg_tqh *frag_msgq)
-{
+rstatus_t memcache_fragment(struct msg* r, uint32_t nserver, struct msg_tqh* frag_msgq) {
     if (memcache_should_fragment(r)) {
         return memcache_fragment_retrieval(r, nserver, frag_msgq, 1);
     }
@@ -1397,11 +1452,9 @@ memcache_fragment(struct msg *r, uint32_t nserver, struct msg_tqh *frag_msgq)
  * the fragmented multi vector request - 'get' or 'gets' and all the
  * responses to the fragmented request vector hasn't been received
  */
-void
-memcache_pre_coalesce(struct msg *r)
-{
-    struct msg *pr = r->peer; /* peer request */
-    struct mbuf *mbuf;
+void memcache_pre_coalesce(struct msg* r) {
+    struct msg* pr = r->peer; /* peer request */
+    struct mbuf* mbuf;
 
     ASSERT(!r->request);
     ASSERT(pr->request);
@@ -1414,72 +1467,73 @@ memcache_pre_coalesce(struct msg *r)
     pr->frag_owner->nfrag_done++;
     switch (r->type) {
 
-    case MSG_RSP_MC_VALUE:
-    case MSG_RSP_MC_END:
-
-        /*
-         * Readjust responses of the fragmented message vector by not
-         * including the end marker for all
-         */
-
-        ASSERT(r->end != NULL);
-
-        for (;;) {
-            mbuf = STAILQ_LAST(&r->mhdr, mbuf, next);
-            ASSERT(mbuf != NULL);
+        case MSG_RSP_MC_VALUE:
+        case MSG_RSP_MC_END:
 
             /*
-             * We cannot assert that end marker points to the last mbuf
-             * Consider a scenario where end marker points to the
-             * penultimate mbuf and the last mbuf only contains spaces
-             * and CRLF: mhdr -> [...END] -> [\r\n]
+             * Readjust responses of the fragmented message vector by not
+             * including the end marker for all
              */
 
-            if (r->end >= mbuf->pos && r->end < mbuf->last) {
-                /* end marker is within this mbuf */
-                r->mlen -= (uint32_t)(mbuf->last - r->end);
-                mbuf->last = r->end;
-                break;
+            ASSERT(r->end != NULL);
+
+            for (;;) {
+                mbuf = STAILQ_LAST(&r->mhdr, mbuf, next);
+                ASSERT(mbuf != NULL);
+
+                /*
+                 * We cannot assert that end marker points to the last mbuf
+                 * Consider a scenario where end marker points to the
+                 * penultimate mbuf and the last mbuf only contains spaces
+                 * and CRLF: mhdr -> [...END] -> [\r\n]
+                 */
+
+                if (r->end >= mbuf->pos && r->end < mbuf->last) {
+                    /* end marker is within this mbuf */
+                    r->mlen -= ( uint32_t )(mbuf->last - r->end);
+                    mbuf->last = r->end;
+                    break;
+                }
+
+                /* end marker is not in this mbuf */
+                r->mlen -= mbuf_length(mbuf);
+                mbuf_remove(&r->mhdr, mbuf);
+                mbuf_put(mbuf);
             }
 
-            /* end marker is not in this mbuf */
-            r->mlen -= mbuf_length(mbuf);
-            mbuf_remove(&r->mhdr, mbuf);
-            mbuf_put(mbuf);
-        }
+            break;
 
-        break;
-
-    default:
-        /*
-         * Valid responses for a fragmented requests are MSG_RSP_MC_VALUE or,
-         * MSG_RSP_MC_END. For an invalid response, we send out SERVER_ERRROR
-         * with EINVAL errno
-         */
-        mbuf = STAILQ_FIRST(&r->mhdr);
-        log_hexdump(LOG_ERR, mbuf->pos, mbuf_length(mbuf), "rsp fragment "
-                    "with unknown type %d", r->type);
-        pr->error = 1;
-        pr->err = EINVAL;
-        break;
+        default:
+            /*
+             * Valid responses for a fragmented requests are MSG_RSP_MC_VALUE or,
+             * MSG_RSP_MC_END. For an invalid response, we send out SERVER_ERRROR
+             * with EINVAL errno
+             */
+            mbuf = STAILQ_FIRST(&r->mhdr);
+            log_hexdump(LOG_ERR,
+                        mbuf->pos,
+                        mbuf_length(mbuf),
+                        "rsp fragment "
+                        "with unknown type %d",
+                        r->type);
+            pr->error = 1;
+            pr->err = EINVAL;
+            break;
     }
 }
 
 /*
  * Copy one response from src to dst and return bytes copied
  */
-static rstatus_t
-memcache_copy_bulk(struct msg *dst, struct msg *src)
-{
+static rstatus_t memcache_copy_bulk(struct msg* dst, struct msg* src) {
     struct mbuf *mbuf, *nbuf;
-    const uint8_t *p;
-    const uint8_t *last;
+    const uint8_t* p;
+    const uint8_t* last;
     uint32_t len = 0;
     uint32_t bytes = 0;
     uint32_t i = 0;
 
-    for (mbuf = STAILQ_FIRST(&src->mhdr);
-         mbuf && mbuf_empty(mbuf);
+    for (mbuf = STAILQ_FIRST(&src->mhdr); mbuf && mbuf_empty(mbuf);
          mbuf = STAILQ_FIRST(&src->mhdr)) {
 
         mbuf_remove(&src->mhdr, mbuf);
@@ -1488,7 +1542,7 @@ memcache_copy_bulk(struct msg *dst, struct msg *src)
 
     mbuf = STAILQ_FIRST(&src->mhdr);
     if (mbuf == NULL) {
-        return NC_OK;           /* key not exists */
+        return NC_OK; /* key not exists */
     }
     p = mbuf->pos;
     last = mbuf->last;
@@ -1512,7 +1566,7 @@ memcache_copy_bulk(struct msg *dst, struct msg *src)
 
     len = 0;
     for (; p < last && isdigit(*p); p++) {
-        len = len * 10 + (uint32_t)(*p - '0');
+        len = len * 10 + ( uint32_t )(*p - '0');
     }
 
     for (; p < last && ('\r' != *p); p++) { /* eat cas for gets */
@@ -1526,22 +1580,21 @@ memcache_copy_bulk(struct msg *dst, struct msg *src)
     if (p >= last) {
         log_error("Saw memcache value response where header was not "
                   "parsed or header length %d unexpectedly exceeded mbuf size limit",
-                  (int)(p - mbuf->pos));
+                  ( int )(p - mbuf->pos));
         return NC_ERROR;
     }
-
 
     bytes = len;
 
     /* copy len bytes to dst */
     for (; mbuf;) {
-        if (mbuf_length(mbuf) <= len) {   /* steal this mbuf from src to dst */
+        if (mbuf_length(mbuf) <= len) { /* steal this mbuf from src to dst */
             nbuf = STAILQ_NEXT(mbuf, next);
             mbuf_remove(&src->mhdr, mbuf);
             mbuf_insert(&dst->mhdr, mbuf);
             len -= mbuf_length(mbuf);
             mbuf = nbuf;
-        } else {                        /* split it */
+        } else { /* split it */
             nbuf = mbuf_get();
             if (nbuf == NULL) {
                 return NC_ENOMEM;
@@ -1565,11 +1618,9 @@ memcache_copy_bulk(struct msg *dst, struct msg *src)
  * responses to the fragmented request vector has been received and
  * the fragmented request is consider to be done
  */
-void
-memcache_post_coalesce(struct msg *request)
-{
-    struct msg *response = request->peer;
-    struct msg *sub_msg;
+void memcache_post_coalesce(struct msg* request) {
+    struct msg* response = request->peer;
+    struct msg* sub_msg;
     uint32_t i;
     rstatus_t status;
 
@@ -1580,8 +1631,8 @@ memcache_post_coalesce(struct msg *request)
         return;
     }
 
-    for (i = 0; i < array_n(request->keys); i++) {      /* for each key */
-        sub_msg = request->frag_seq[i]->peer;           /* get its peer response */
+    for (i = 0; i < array_n(request->keys); i++) { /* for each key */
+        sub_msg = request->frag_seq[i]->peer;      /* get its peer response */
         if (sub_msg == NULL) {
             response->owner->err = 1;
             return;
@@ -1594,34 +1645,23 @@ memcache_post_coalesce(struct msg *request)
     }
 
     /* append END\r\n */
-    status = msg_append(response, (const uint8_t *)"END\r\n", 5);
+    status = msg_append(response, ( const uint8_t* )"END\r\n", 5);
     if (status != NC_OK) {
         response->owner->err = 1;
         return;
     }
 }
 
-void
-memcache_post_connect(struct context *ctx, struct conn *conn, struct server *server)
-{
-}
+void memcache_post_connect(struct context* ctx, struct conn* conn, struct server* server) {}
 
-void
-memcache_swallow_msg(struct conn *conn, struct msg *pmsg, struct msg *msg)
-{
-}
+void memcache_swallow_msg(struct conn* conn, struct msg* pmsg, struct msg* msg) {}
 
-rstatus_t
-memcache_add_auth(struct context *ctx, struct conn *c_conn, struct conn *s_conn)
-{
+rstatus_t memcache_add_auth(struct context* ctx, struct conn* c_conn, struct conn* s_conn) {
     NOT_REACHED();
     return NC_OK;
 }
 
-rstatus_t
-memcache_reply(struct msg *r)
-{
+rstatus_t memcache_reply(struct msg* r) {
     NOT_REACHED();
     return NC_OK;
 }
-
