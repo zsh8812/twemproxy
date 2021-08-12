@@ -562,6 +562,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    mbuf_init(&nci);
     int thread_num = 5;
     pthread_t* ntid = ( pthread_t* )malloc(thread_num * sizeof(pthread_t));
     struct instance* nci_tmp = ( struct instance* )malloc(thread_num * sizeof(struct instance));

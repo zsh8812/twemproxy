@@ -155,7 +155,7 @@ static void core_ctx_destroy(struct context* ctx) {
 struct context* core_start(struct instance* nci) {
     struct context* ctx;
 
-    mbuf_init(nci);
+    // mbuf_init(nci);
     conn_init();
 
     ctx = core_ctx_create(nci);
